@@ -810,6 +810,8 @@ const SUPABASE_URL = 'https://egonicvreizaknzwqvbt.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnb25pY3ZyZWl6YWtuendxdmJ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxOTQ2ODIsImV4cCI6MjA4OTc3MDY4Mn0.MRNFahn8obGmRHowMliJUIzdcO_CSa-z3IX1RlXdDgw';
 // Edge Function para controle físico via Tuya
 const TUYA_EDGE_FN = 'https://egonicvreizaknzwqvbt.supabase.co/functions/v1/tuya-control';
+// Edge Function para controle físico via Tuya
+const TUYA_EDGE_FN = 'https://egonicvreizaknzwqvbt.supabase.co/functions/v1/tuya-control';
 // ============================================================
 
 const { createClient } = supabase;
@@ -980,6 +982,24 @@ async function updateDevice(id, fields) {
     source:      'dashboard',
     success:     true,
   });
+
+  // ── Controle físico via Tuya (se dispositivo tiver tuya_device_id) ──
+  if ('status' in fields && device.tuya_device_id) {
+    try {
+      const resp = await fetch(TUYA_EDGE_FN, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY },
+        body: JSON.stringify({ action: 'control', device_id: device.tuya_device_id, value: fields.status }),
+      });
+      const result = await resp.json();
+      if (!result.success) {
+        console.warn('Tuya control failed:', result);
+        showToast(`${device.name}: erro Tuya ⚠️`, 'error');
+      }
+    } catch (e) {
+      console.warn('Tuya fetch error:', e);
+    }
+  }
 
   // ── Controle físico via Tuya (se dispositivo tiver tuya_device_id) ──
   if ('status' in fields && device.tuya_device_id) {
