@@ -810,8 +810,6 @@ const SUPABASE_URL = 'https://egonicvreizaknzwqvbt.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnb25pY3ZyZWl6YWtuendxdmJ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxOTQ2ODIsImV4cCI6MjA4OTc3MDY4Mn0.MRNFahn8obGmRHowMliJUIzdcO_CSa-z3IX1RlXdDgw';
 // Edge Function para controle físico via Tuya
 const TUYA_EDGE_FN = 'https://egonicvreizaknzwqvbt.supabase.co/functions/v1/tuya-control';
-// Edge Function para controle físico via Tuya
-const TUYA_EDGE_FN = 'https://egonicvreizaknzwqvbt.supabase.co/functions/v1/tuya-control';
 // ============================================================
 
 const { createClient } = supabase;
@@ -865,8 +863,12 @@ function renderDevices() {
     rooms[d.room].push(d);
   }
 
-  const roomIcons = { Sala:'🛋️', Quarto:'🛏️', Cozinha:'🍳', Banheiro:'🚿',
-                      Varanda:'🌿', Escritório:'💼', Garagem:'🚗' };
+  const roomIcons = {
+    'Sala':'🛋️', 'Quarto':'🛏️', 'Quarto Casal':'🛏️', 'Quarto Clarinha':'🛏️',
+    'Cozinha':'🍳', 'Banheiro':'🚿', 'Lavabo':'🪥', 'Hall':'🚪',
+    'Varanda':'🌿', 'Escritório':'💼', 'Garagem':'🚗',
+    'Área Externa':'🏊', 'Geral':'🔌'
+  };
 
   container.innerHTML = Object.entries(rooms).map(([room, devices]) => `
     <div class="room-group">
