@@ -1001,7 +1001,7 @@ async function updateDevice(id, fields) {
     }
   }
 
-  // ── Controle físico via Tuya (se dispositivo tiver tuya_device_id) ──
+  // Controle fisico via Tuya
   if ('status' in fields && device.tuya_device_id) {
     try {
       const resp = await fetch(TUYA_EDGE_FN, {
@@ -1010,13 +1010,8 @@ async function updateDevice(id, fields) {
         body: JSON.stringify({ action: 'control', device_id: device.tuya_device_id, value: fields.status }),
       });
       const result = await resp.json();
-      if (!result.success) {
-        console.warn('Tuya control failed:', result);
-        showToast(`${device.name}: erro Tuya ⚠️`, 'error');
-      }
-    } catch (e) {
-      console.warn('Tuya fetch error:', e);
-    }
+      if (!result.success) showToast(device.name + ': erro Tuya', 'error');
+    } catch (e) { console.warn('Tuya error:', e); }
   }
 
   // Atualiza localmente
