@@ -95,6 +95,98 @@
       border: 1px solid var(--border);
     }
 
+    /* ============================================================
+       BOTÃO DE VOZ
+    ============================================================ */
+    .mic-btn {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 16px;
+      border-radius: 20px;
+      border: 1.5px solid var(--border);
+      background: var(--bg3);
+      color: var(--text2);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      user-select: none;
+    }
+    .mic-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: #f0f7ff;
+    }
+    .mic-btn.listening {
+      background: linear-gradient(135deg, #fee2e2, #fecaca);
+      border-color: #ef4444;
+      color: #dc2626;
+      animation: micPulse 1.4s ease-in-out infinite;
+    }
+    .mic-btn.processing {
+      background: linear-gradient(135deg, #eff6ff, #dbeafe);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .mic-icon { font-size: 15px; line-height: 1; }
+    @keyframes micPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); }
+      50%       { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+    }
+
+    /* Overlay de feedback de voz */
+    #voiceOverlay {
+      display: none;
+      position: fixed;
+      bottom: 90px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15,25,50,0.93);
+      color: #fff;
+      border-radius: 18px;
+      padding: 18px 28px;
+      min-width: 290px;
+      max-width: 90vw;
+      text-align: center;
+      z-index: 400;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+      backdrop-filter: blur(10px);
+      animation: slideUp 0.22s ease;
+    }
+    #voiceOverlay.active { display: block; }
+    @keyframes slideUp {
+      from { opacity:0; transform: translateX(-50%) translateY(16px); }
+      to   { opacity:1; transform: translateX(-50%) translateY(0); }
+    }
+    .voice-waves {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      margin-bottom: 10px;
+      height: 30px;
+    }
+    .voice-waves span {
+      display: block;
+      width: 4px;
+      border-radius: 4px;
+      background: #ef4444;
+      animation: wave 0.8s ease-in-out infinite;
+    }
+    .voice-waves span:nth-child(1) { height: 8px;  animation-delay: 0s; }
+    .voice-waves span:nth-child(2) { height: 18px; animation-delay: 0.12s; }
+    .voice-waves span:nth-child(3) { height: 28px; animation-delay: 0.24s; }
+    .voice-waves span:nth-child(4) { height: 18px; animation-delay: 0.36s; }
+    .voice-waves span:nth-child(5) { height: 8px;  animation-delay: 0.48s; }
+    @keyframes wave {
+      0%, 100% { transform: scaleY(0.35); }
+      50%       { transform: scaleY(1); }
+    }
+    .voice-waves.idle span { background: #38bdf8; animation: none; transform: scaleY(0.3); }
+    #voiceText  { font-size: 15px; font-weight: 600; color: #f1f5f9; min-height: 22px; }
+    #voiceHint  { font-size: 11px; color: #94a3b8; margin-top: 6px; }
+
     .status-dot {
       width: 8px;
       height: 8px;
@@ -940,12 +1032,25 @@
     </div>
   </div>
   <div class="header-right">
+    <button class="mic-btn" id="micBtn" onclick="toggleVoice()" title="Comando de voz — diga BEM para ativar">
+      <span class="mic-icon">🎤</span>
+      <span id="micLabel">BEM</span>
+    </button>
     <div class="status-badge">
       <div class="status-dot" id="statusDot"></div>
       <span id="statusText">Conectando...</span>
     </div>
   </div>
 </header>
+
+<!-- Overlay de feedback de voz -->
+<div id="voiceOverlay">
+  <div class="voice-waves" id="voiceWaves">
+    <span></span><span></span><span></span><span></span><span></span>
+  </div>
+  <div id="voiceText">Ouvindo...</div>
+  <div id="voiceHint">Diga: "ligar luz da sala" ou "desligar tudo"</div>
+</div>
 
 <!-- ============================================================
      STATS BAR
@@ -1656,6 +1761,163 @@ function subscribeRealtime() {
     .subscribe((status) => {
       showStatus(status === 'SUBSCRIBED');
     });
+}
+
+// ============================================================
+// CONTROLE DE VOZ — BEM
+// ============================================================
+let recognition   = null;
+let isListening   = false;
+let voiceTimeout  = null;
+
+function initVoice() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) return null;
+  const rec = new SpeechRec();
+  rec.lang           = 'pt-BR';
+  rec.continuous     = false;
+  rec.interimResults = true;
+  rec.maxAlternatives = 2;
+
+  rec.onstart = () => {
+    isListening = true;
+    setMicState('listening');
+    showVoiceOverlay('Ouvindo...', false);
+  };
+
+  rec.onresult = (e) => {
+    const transcript = Array.from(e.results)
+      .map(r => r[0].transcript).join(' ').toLowerCase().trim();
+    document.getElementById('voiceText').textContent = '💬 ' + transcript;
+    if (e.results[e.results.length - 1].isFinal) {
+      processVoiceCommand(transcript);
+    }
+  };
+
+  rec.onerror = (e) => {
+    if (e.error === 'not-allowed') {
+      showToast('Permissão de microfone negada ❌', 'error');
+    } else if (e.error !== 'no-speech') {
+      showToast('Erro no reconhecimento: ' + e.error, 'error');
+    }
+    stopVoice();
+  };
+
+  rec.onend = () => { if (isListening) stopVoice(); };
+  return rec;
+}
+
+function toggleVoice() {
+  if (isListening) { stopVoice(); return; }
+  if (!recognition) recognition = initVoice();
+  if (!recognition) {
+    showToast('Seu navegador não suporta reconhecimento de voz 😕', 'error');
+    return;
+  }
+  try {
+    recognition.start();
+    // Auto-parar após 8 segundos
+    voiceTimeout = setTimeout(() => stopVoice(), 8000);
+  } catch(e) { console.warn('Voice start error:', e); }
+}
+
+function stopVoice() {
+  isListening = false;
+  clearTimeout(voiceTimeout);
+  try { recognition?.stop(); } catch(e) {}
+  setMicState('idle');
+  setTimeout(hideVoiceOverlay, 1200);
+}
+
+function setMicState(state) {
+  const btn   = document.getElementById('micBtn');
+  const label = document.getElementById('micLabel');
+  btn.className = 'mic-btn' + (state === 'listening' ? ' listening' : state === 'processing' ? ' processing' : '');
+  label.textContent = state === 'listening' ? 'Ouvindo...' : state === 'processing' ? 'Processando...' : 'BEM';
+}
+
+function showVoiceOverlay(text, idle = false) {
+  const ov    = document.getElementById('voiceOverlay');
+  const waves = document.getElementById('voiceWaves');
+  document.getElementById('voiceText').textContent = text;
+  waves.className = 'voice-waves' + (idle ? ' idle' : '');
+  ov.classList.add('active');
+}
+
+function hideVoiceOverlay() {
+  document.getElementById('voiceOverlay').classList.remove('active');
+}
+
+// ── Interpretação dos comandos ─────────────────────────────
+function processVoiceCommand(text) {
+  setMicState('processing');
+  showVoiceOverlay('⚙️ Processando...', true);
+
+  // Remove prefixo "bem" caso o usuário diga "bem, ligar..."
+  const clean = text.replace(/^bem[,\s]+/i, '').trim();
+
+  // Detecta ação
+  const isLigar    = /\b(liga|liga[rn]|ligar|acend[ae]|acender|ativa[r]?|liga)\b/.test(clean);
+  const isDesligar = /\b(desliga|desligar|desligad[ao]|apag[ae]|apagar|desativ[ae]|desligar)\b/.test(clean);
+  const isTudo     = /\b(tudo|todos|todas|geral)\b/.test(clean);
+  const isLuz      = /\b(luz|luzes|l[aâ]mpada|ilumina[çc][aã]o)\b/.test(clean);
+  const isAr       = /\b(ar|clima|ar.condicionado|arcondicionado|ac)\b/.test(clean);
+
+  // Extrai cômodo mencionado
+  const roomMap = {
+    'sala':            ['sala', 'estar', 'jantar', 'living'],
+    'Quarto Casal':    ['quarto casal', 'master', 'casal', 'suite master', 'suíte master'],
+    'Quarto Clarinha': ['quarto clarinha', 'clarinha', 'suite 2', 'suíte 2'],
+    'Escritório':      ['escritório', 'escritorio', 'office'],
+    'Varanda':         ['varanda', 'sacada', 'área externa'],
+    'Cozinha':         ['cozinha', 'copa'],
+    'Hall':            ['hall', 'corredor', 'circulação'],
+    'Banheiro':        ['banheiro', 'lavabo', 'lavabo'],
+  };
+
+  let targetRoom = null;
+  for (const [room, keywords] of Object.entries(roomMap)) {
+    if (keywords.some(k => clean.includes(k))) { targetRoom = room; break; }
+  }
+
+  // Filtra dispositivos
+  let targets = allDevices;
+  if (targetRoom) targets = targets.filter(d => d.room === targetRoom || (targetRoom === 'sala' && d.room === 'Sala'));
+  if (isLuz && !isAr)   targets = targets.filter(d => d.type === 'light');
+  if (isAr  && !isLuz)  targets = targets.filter(d => d.type === 'ac');
+
+  const action = isLigar ? true : isDesligar ? false : null;
+
+  if (action === null || targets.length === 0) {
+    showVoiceOverlay('🤔 Não entendi o comando', true);
+    showToast('Comando não reconhecido: "' + clean + '"', 'error');
+    setTimeout(hideVoiceOverlay, 2500);
+    setMicState('idle');
+    return;
+  }
+
+  // Executa nos dispositivos alvo
+  const toChange = targets.filter(d => d.status !== action);
+  if (toChange.length === 0) {
+    const msg = action ? 'Já estão ligados ✅' : 'Já estão desligados ✅';
+    showVoiceOverlay(msg, true);
+    showToast(msg, 'info');
+    setTimeout(hideVoiceOverlay, 2200);
+    setMicState('idle');
+    return;
+  }
+
+  Promise.all(toChange.map(d => updateDevice(d.id, { status: action }))).then(() => {
+    const roomLabel = targetRoom ? ` (${targetRoom})` : '';
+    const typeLabel = isLuz ? ' luzes' : isAr ? ' ar' : '';
+    const msg = action
+      ? `💡 Ligado${typeLabel}${roomLabel}`
+      : `🌙 Desligado${typeLabel}${roomLabel}`;
+    showVoiceOverlay(msg, true);
+    showToast(msg, action ? 'success' : 'info');
+    setTimeout(hideVoiceOverlay, 2500);
+    setMicState('idle');
+  });
 }
 
 // ============================================================
