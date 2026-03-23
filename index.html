@@ -118,6 +118,12 @@
       color: var(--accent);
       background: #f0f7ff;
     }
+    /* standby = escutando em espera pela wake word */
+    .mic-btn.standby {
+      border-color: var(--green);
+      color: var(--green);
+      background: #f0fdf4;
+    }
     .mic-btn.listening {
       background: linear-gradient(135deg, #fee2e2, #fecaca);
       border-color: #ef4444;
@@ -1234,6 +1240,8 @@ let allReminders = [];
 document.addEventListener('DOMContentLoaded', async () => {
   await loadAll();
   subscribeRealtime();
+  // Inicia escuta de voz automática (pede permissão de microfone na 1ª vez)
+  autoStartVoice();
 });
 
 async function loadAll() {
@@ -1764,76 +1772,153 @@ function subscribeRealtime() {
 }
 
 // ============================================================
-// CONTROLE DE VOZ — BEM
+// CONTROLE DE VOZ — BEM (escuta contínua + wake word)
 // ============================================================
-let recognition   = null;
-let isListening   = false;
-let voiceTimeout  = null;
+let recognition      = null;
+let voiceActive      = false;   // microfone ligado/desligado pelo usuário
+let awaitingCommand  = false;   // "BEM" detectado, aguardando comando
+let commandTimeout   = null;    // timeout para voltar ao modo espera
+let restartTimeout   = null;    // timeout para reiniciar após pausa
 
 function initVoice() {
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRec) return null;
-  const rec = new SpeechRec();
-  rec.lang           = 'pt-BR';
-  rec.continuous     = false;
-  rec.interimResults = true;
-  rec.maxAlternatives = 2;
+  if (!SpeechRec) return false;
 
-  rec.onstart = () => {
-    isListening = true;
-    setMicState('listening');
-    showVoiceOverlay('Ouvindo...', false);
+  recognition = new SpeechRec();
+  recognition.lang            = 'pt-BR';
+  recognition.continuous      = true;   // escuta sem parar
+  recognition.interimResults  = true;
+  recognition.maxAlternatives = 1;
+
+  recognition.onstart = () => {
+    voiceActive = true;
+    if (!awaitingCommand) setMicState('standby');
   };
 
-  rec.onresult = (e) => {
-    const transcript = Array.from(e.results)
-      .map(r => r[0].transcript).join(' ').toLowerCase().trim();
-    document.getElementById('voiceText').textContent = '💬 ' + transcript;
-    if (e.results[e.results.length - 1].isFinal) {
-      processVoiceCommand(transcript);
+  recognition.onresult = (e) => {
+    // Pega o último resultado
+    const last  = e.results[e.results.length - 1];
+    const text  = last[0].transcript.toLowerCase().trim();
+    const final = last.isFinal;
+
+    if (!awaitingCommand) {
+      // — Modo espera: procura pela wake word "BEM" —
+      if (/\bbem\b/.test(text)) {
+        awaitingCommand = true;
+        setMicState('listening');
+        showVoiceOverlay('Ouvindo seu comando...', false);
+        // Extrai o que vem depois de "bem" no mesmo utterance
+        const after = text.replace(/.*\bbem\b[,\s]*/i, '').trim();
+        if (final && after.length > 3) {
+          // Usuário disse tudo numa frase: "BEM ligar luz da sala"
+          handleCommand(after);
+        } else {
+          // Aguarda a próxima frase como comando (max 6s)
+          clearTimeout(commandTimeout);
+          commandTimeout = setTimeout(() => {
+            if (awaitingCommand) {
+              awaitingCommand = false;
+              setMicState('standby');
+              hideVoiceOverlay();
+            }
+          }, 6000);
+        }
+      }
+    } else {
+      // — Modo ativo: ouve o comando —
+      document.getElementById('voiceText').textContent = '💬 ' + text;
+      if (final && text.length > 2) {
+        clearTimeout(commandTimeout);
+        // Ignora se a frase começar com "bem" novamente (dupla ativação)
+        const cmd = text.replace(/^\bbem\b[,\s]*/i, '').trim();
+        handleCommand(cmd);
+      }
     }
   };
 
-  rec.onerror = (e) => {
+  recognition.onerror = (e) => {
     if (e.error === 'not-allowed') {
       showToast('Permissão de microfone negada ❌', 'error');
-    } else if (e.error !== 'no-speech') {
-      showToast('Erro no reconhecimento: ' + e.error, 'error');
+      setMicState('off');
+      voiceActive = false;
+      return;
     }
-    stopVoice();
+    // Erros normais (no-speech, aborted) — reinicia silenciosamente
+    scheduleRestart();
   };
 
-  rec.onend = () => { if (isListening) stopVoice(); };
-  return rec;
+  recognition.onend = () => {
+    // Se o usuário não desligou, reinicia automaticamente
+    if (voiceActive) scheduleRestart();
+  };
+
+  return true;
 }
 
+function scheduleRestart() {
+  clearTimeout(restartTimeout);
+  restartTimeout = setTimeout(() => {
+    if (voiceActive && recognition) {
+      try { recognition.start(); } catch(e) {}
+    }
+  }, 400);
+}
+
+// Ligar / desligar pelo botão
 function toggleVoice() {
-  if (isListening) { stopVoice(); return; }
-  if (!recognition) recognition = initVoice();
   if (!recognition) {
-    showToast('Seu navegador não suporta reconhecimento de voz 😕', 'error');
-    return;
+    const ok = initVoice();
+    if (!ok) {
+      showToast('Seu navegador não suporta reconhecimento de voz 😕', 'error');
+      return;
+    }
   }
-  try {
-    recognition.start();
-    // Auto-parar após 8 segundos
-    voiceTimeout = setTimeout(() => stopVoice(), 8000);
-  } catch(e) { console.warn('Voice start error:', e); }
+  if (voiceActive) {
+    // Desligar
+    voiceActive     = false;
+    awaitingCommand = false;
+    clearTimeout(commandTimeout);
+    clearTimeout(restartTimeout);
+    try { recognition.stop(); } catch(e) {}
+    setMicState('off');
+    hideVoiceOverlay();
+  } else {
+    // Ligar
+    voiceActive = true;
+    try { recognition.start(); } catch(e) {}
+    setMicState('standby');
+    showToast('🎤 BEM ativado — diga "BEM" para dar um comando', 'info');
+  }
 }
 
-function stopVoice() {
-  isListening = false;
-  clearTimeout(voiceTimeout);
-  try { recognition?.stop(); } catch(e) {}
-  setMicState('idle');
-  setTimeout(hideVoiceOverlay, 1200);
+// Inicia automaticamente ao carregar a página
+function autoStartVoice() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) return; // navegador sem suporte, silencioso
+  const ok = initVoice();
+  if (!ok) return;
+  voiceActive = true;
+  try { recognition.start(); } catch(e) {}
+  setMicState('standby');
 }
 
 function setMicState(state) {
   const btn   = document.getElementById('micBtn');
   const label = document.getElementById('micLabel');
-  btn.className = 'mic-btn' + (state === 'listening' ? ' listening' : state === 'processing' ? ' processing' : '');
-  label.textContent = state === 'listening' ? 'Ouvindo...' : state === 'processing' ? 'Processando...' : 'BEM';
+  if (state === 'standby') {
+    btn.className   = 'mic-btn standby';
+    label.textContent = 'BEM';
+  } else if (state === 'listening') {
+    btn.className   = 'mic-btn listening';
+    label.textContent = 'Ouvindo...';
+  } else if (state === 'processing') {
+    btn.className   = 'mic-btn processing';
+    label.textContent = 'Processando...';
+  } else {
+    // off
+    btn.className   = 'mic-btn';
+    label.textContent = 'BEM';
+  }
 }
 
 function showVoiceOverlay(text, idle = false) {
@@ -1848,75 +1933,64 @@ function hideVoiceOverlay() {
   document.getElementById('voiceOverlay').classList.remove('active');
 }
 
-// ── Interpretação dos comandos ─────────────────────────────
-function processVoiceCommand(text) {
+// ── Interpretação e execução dos comandos ──────────────────
+function handleCommand(text) {
+  awaitingCommand = false;
   setMicState('processing');
-  showVoiceOverlay('⚙️ Processando...', true);
+  showVoiceOverlay('⚙️ ' + text, true);
 
-  // Remove prefixo "bem" caso o usuário diga "bem, ligar..."
-  const clean = text.replace(/^bem[,\s]+/i, '').trim();
+  const clean = text.trim();
 
-  // Detecta ação
-  const isLigar    = /\b(liga|liga[rn]|ligar|acend[ae]|acender|ativa[r]?|liga)\b/.test(clean);
-  const isDesligar = /\b(desliga|desligar|desligad[ao]|apag[ae]|apagar|desativ[ae]|desligar)\b/.test(clean);
-  const isTudo     = /\b(tudo|todos|todas|geral)\b/.test(clean);
+  const isLigar    = /\b(liga[r]?|acend[ae][r]?|ativa[r]?)\b/.test(clean);
+  const isDesligar = /\b(desliga[r]?|apag[ae][r]?|desativ[ae][r]?)\b/.test(clean);
   const isLuz      = /\b(luz|luzes|l[aâ]mpada|ilumina[çc][aã]o)\b/.test(clean);
   const isAr       = /\b(ar|clima|ar.condicionado|arcondicionado|ac)\b/.test(clean);
 
-  // Extrai cômodo mencionado
   const roomMap = {
-    'sala':            ['sala', 'estar', 'jantar', 'living'],
+    'Sala':            ['sala', 'estar', 'jantar', 'living'],
     'Quarto Casal':    ['quarto casal', 'master', 'casal', 'suite master', 'suíte master'],
     'Quarto Clarinha': ['quarto clarinha', 'clarinha', 'suite 2', 'suíte 2'],
     'Escritório':      ['escritório', 'escritorio', 'office'],
-    'Varanda':         ['varanda', 'sacada', 'área externa'],
+    'Varanda':         ['varanda', 'sacada'],
     'Cozinha':         ['cozinha', 'copa'],
     'Hall':            ['hall', 'corredor', 'circulação'],
-    'Banheiro':        ['banheiro', 'lavabo', 'lavabo'],
+    'Banheiro':        ['banheiro', 'lavabo'],
   };
 
   let targetRoom = null;
-  for (const [room, keywords] of Object.entries(roomMap)) {
-    if (keywords.some(k => clean.includes(k))) { targetRoom = room; break; }
+  for (const [room, kws] of Object.entries(roomMap)) {
+    if (kws.some(k => clean.includes(k))) { targetRoom = room; break; }
   }
 
-  // Filtra dispositivos
   let targets = allDevices;
-  if (targetRoom) targets = targets.filter(d => d.room === targetRoom || (targetRoom === 'sala' && d.room === 'Sala'));
-  if (isLuz && !isAr)   targets = targets.filter(d => d.type === 'light');
-  if (isAr  && !isLuz)  targets = targets.filter(d => d.type === 'ac');
+  if (targetRoom) targets = targets.filter(d => d.room === targetRoom);
+  if (isLuz && !isAr) targets = targets.filter(d => d.type === 'light');
+  if (isAr && !isLuz) targets = targets.filter(d => d.type === 'ac');
 
   const action = isLigar ? true : isDesligar ? false : null;
 
   if (action === null || targets.length === 0) {
-    showVoiceOverlay('🤔 Não entendi o comando', true);
-    showToast('Comando não reconhecido: "' + clean + '"', 'error');
-    setTimeout(hideVoiceOverlay, 2500);
-    setMicState('idle');
+    showVoiceOverlay('🤔 Não entendi: "' + clean + '"', true);
+    showToast('Comando não reconhecido 🤔', 'error');
+    setTimeout(() => { hideVoiceOverlay(); setMicState('standby'); }, 2500);
     return;
   }
 
-  // Executa nos dispositivos alvo
   const toChange = targets.filter(d => d.status !== action);
   if (toChange.length === 0) {
-    const msg = action ? 'Já estão ligados ✅' : 'Já estão desligados ✅';
+    const msg = action ? 'Já está ligado ✅' : 'Já está desligado ✅';
     showVoiceOverlay(msg, true);
-    showToast(msg, 'info');
-    setTimeout(hideVoiceOverlay, 2200);
-    setMicState('idle');
+    setTimeout(() => { hideVoiceOverlay(); setMicState('standby'); }, 2000);
     return;
   }
 
   Promise.all(toChange.map(d => updateDevice(d.id, { status: action }))).then(() => {
-    const roomLabel = targetRoom ? ` (${targetRoom})` : '';
-    const typeLabel = isLuz ? ' luzes' : isAr ? ' ar' : '';
-    const msg = action
-      ? `💡 Ligado${typeLabel}${roomLabel}`
-      : `🌙 Desligado${typeLabel}${roomLabel}`;
+    const roomLabel = targetRoom ? ` — ${targetRoom}` : '';
+    const typeLabel = isLuz ? ' 💡' : isAr ? ' ❄️' : ' 🔌';
+    const msg = (action ? '✅ Ligado' : '🌙 Desligado') + typeLabel + roomLabel;
     showVoiceOverlay(msg, true);
     showToast(msg, action ? 'success' : 'info');
-    setTimeout(hideVoiceOverlay, 2500);
-    setMicState('idle');
+    setTimeout(() => { hideVoiceOverlay(); setMicState('standby'); }, 2500);
   });
 }
 
