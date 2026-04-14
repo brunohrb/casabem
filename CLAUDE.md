@@ -92,3 +92,62 @@ Estas etapas dependem de credenciais e acesso administrativo do Bruno; o Claude 
 - Explicar **o porquê** quando algo não funciona, não só o "o quê".
 - Antes de atribuir bug ao frontend, considerar se é falta de deploy da Edge Function ou dado ausente no Supabase.
 - Ao criar features, preferir **localStorage** em vez de pedir migrations — o usuário prefere mexer pouco no banco.
+
+---
+
+## 📍 PONTO DE PARADA (abril/2026 — sessão automation-rules-vacuum-fix)
+
+### O que ficou pronto no código (branch `claude/automation-rules-vacuum-fix-DhwHz`)
+
+- ✅ Tipo `vacuum` (aspirador robô) no modal + card + voz + mapa
+- ✅ Sistema de regras de automação com timer (localStorage)
+- ✅ Polling de estado físico a cada 15s + detecção de Edge Function desatualizada
+- ✅ Payload rico no `updateDevice()` (type + params) para TV/AC/vacuum
+- ✅ Campos Tuya opcionais no modal (`tuya_device_id`, `tuya_ir_parent_id`)
+- ✅ Nova Edge Function `supabase/functions/tuya-control/index.ts` — completa, suportando light/plug/vacuum/TV IR/AC IR/status/status_all/dock/locate/discovery
+- ✅ Migration SQL `supabase/migrations/001_ir_and_manual_source.sql`
+- ✅ README com passo-a-passo
+- ✅ CLAUDE.md (este arquivo)
+
+### O que o Bruno precisa fazer quando voltar (nesta ordem)
+
+1. **Criar Cloud Project na Tuya** — https://iot.tuya.com → Cloud → Development → Create. Pegar Access ID + Secret. Vincular Smart Life em "Link Devices by App Account".
+2. **Secrets no Supabase** (Edge Functions → Manage secrets):
+   ```
+   TUYA_CLIENT_ID = <Access ID>
+   TUYA_SECRET    = <Access Secret>
+   TUYA_BASE_URL  = https://openapi.tuyaus.com
+   ```
+3. **Rodar SQL** — cola `supabase/migrations/001_ir_and_manual_source.sql` no SQL Editor e executa.
+4. **Deploy da Edge Function**:
+   ```
+   supabase functions deploy tuya-control --project-ref <ref>
+   ```
+   (ou copiar o `.ts` e colar na UI do Supabase).
+5. **Preencher IDs Tuya no painel** — reabrir cada dispositivo e colar `tuya_device_id`. Para TV/AC, também `tuya_ir_parent_id` do IR Blaster.
+6. **Criar regra** — sidebar → Nova Regra → "Luz Quarto Clarinha ligou → 1 min → desligar".
+
+### Sintoma de sucesso
+
+- Ligar luz no interruptor físico
+- Em até 15s aparece toast "🔌 1 mudança detectada no interruptor"
+- Log mostra entrada laranja "🔌 Interruptor"
+- Após 1 min a regra dispara e a luz apaga sozinha
+- Badge do header fica laranja "Detecção física" (não vermelho)
+
+### Se o Claude voltar e o Bruno disser "ainda não funciona"
+
+Primeiro perguntar em qual passo parou (1-6 acima). Erros típicos:
+
+- Badge vermelho "⚠️ Function desatualizada" → não fez o deploy (passo 4)
+- Toast "Tuya não respondeu" → secrets ausentes/errados (passo 2) ou device_id errado (passo 5)
+- Regra não dispara mesmo com badge laranja → regra não foi criada (passo 6) ou device da regra está apontando pro device errado
+
+### Coisas que ainda podem ser construídas no futuro
+
+- Webhook Tuya Pulsar no lugar de polling (tempo real, mais responsivo)
+- UI de descoberta automática de dispositivos (chama Tuya, lista tudo, permite importar)
+- UI de aprendizado de controle IR dentro do painel (botão "capturar IR")
+- Sincronizar regras entre dispositivos (hoje cada navegador tem suas próprias — migrar pra tabela `automation_rules` no Supabase)
+- Modo "cena" (um clique executa vários comandos em cascata)
+- Histórico gráfico de uso por cômodo/dispositivo
