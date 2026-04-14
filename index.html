@@ -524,6 +524,7 @@
     }
     .sync-badge:hover { border-color: var(--orange); color: var(--orange); }
     .sync-badge.on    { border-color: var(--orange); color: var(--orange); background: #fff8ed; }
+    .sync-badge.stale { border-color: var(--red); color: var(--red); background: #fff2f2; }
     .sync-badge.syncing .sync-icon { animation: spin 0.8s linear infinite; display:inline-block; }
     .sync-icon { font-size: 13px; }
 
@@ -2048,15 +2049,18 @@ const POLL_INTERVAL_MS = 15000;
 let pollingEnabled  = localStorage.getItem('casabem_poll_enabled') !== 'false';
 let pollingHandle   = null;
 let pollingInFlight = false;
+// Controla se já alertamos o usuário que a Edge Function não suporta status_all
+let staleFnWarned   = false;
 
 function setSyncBadgeState(state) {
   const badge = document.getElementById('syncBadge');
   const label = document.getElementById('syncLabel');
   if (!badge) return;
-  badge.classList.remove('on', 'syncing');
-  if (state === 'on')       { badge.classList.add('on');            label.textContent = 'Detecção física'; }
-  else if (state === 'sync'){ badge.classList.add('on', 'syncing'); label.textContent = 'Sincronizando…'; }
-  else                      { label.textContent = 'Detecção física'; }
+  badge.classList.remove('on', 'syncing', 'stale');
+  if (state === 'on')        { badge.classList.add('on');            label.textContent = 'Detecção física'; }
+  else if (state === 'sync') { badge.classList.add('on', 'syncing'); label.textContent = 'Sincronizando…'; }
+  else if (state === 'stale'){ badge.classList.add('stale');         label.textContent = '⚠️ Function desatualizada'; }
+  else                       { label.textContent = 'Detecção física'; }
 }
 
 async function tuyaStatusBatch(devices) {
@@ -2072,12 +2076,18 @@ async function tuyaStatusBatch(devices) {
     });
     if (resp.ok) {
       const json = await resp.json();
-      if (json && json.success && json.statuses) return json.statuses;
+      if (json && json.success && json.statuses) return { ok: true, statuses: json.statuses };
+      // A Edge Function responde mas não reconhece a action — versão antiga
+      if (json && json.error && /action desconhecida|unknown action|not supported/i.test(String(json.error))) {
+        return { ok: false, stale: true };
+      }
     }
   } catch (e) { /* cai no fallback */ }
 
   // Fallback: um a um
   const out = {};
+  let anyOk = false;
+  let anyStale = false;
   for (const d of devices) {
     try {
       const resp = await fetch(TUYA_EDGE_FN, {
@@ -2089,10 +2099,32 @@ async function tuyaStatusBatch(devices) {
       const json = await resp.json();
       if (json && json.success && typeof json.status === 'boolean') {
         out[d.tuya_device_id] = json.status;
+        anyOk = true;
+      } else if (json && json.error && /action desconhecida|unknown action/i.test(String(json.error))) {
+        anyStale = true;
       }
     } catch (e) { /* ignora */ }
   }
-  return out;
+  if (!anyOk && anyStale) return { ok: false, stale: true };
+  return { ok: true, statuses: out };
+}
+
+function warnStaleFunction() {
+  if (staleFnWarned) return;
+  staleFnWarned = true;
+  setSyncBadgeState('stale');
+  // Auto-pausa o polling pra não ficar gritando erro no console
+  clearInterval(pollingHandle);
+  pollingHandle = null;
+  showToast(
+    '⚠️ Edge Function Tuya desatualizada. Faça o deploy da nova versão — veja o README.',
+    'error',
+  );
+  console.warn(
+    '[casabem] A Edge Function tuya-control não suporta action:status_all.\n' +
+    'Faça o deploy do arquivo supabase/functions/tuya-control/index.ts.\n' +
+    'Enquanto isso, a detecção de interruptor físico fica pausada.'
+  );
 }
 
 async function syncPhysicalState({ silent = true } = {}) {
@@ -2103,10 +2135,20 @@ async function syncPhysicalState({ silent = true } = {}) {
   pollingInFlight = true;
   if (!silent) setSyncBadgeState('sync');
 
-  let statuses = {};
-  try {
-    statuses = await tuyaStatusBatch(targets);
-  } catch (e) { console.warn('sync error', e); }
+  const result = await tuyaStatusBatch(targets).catch(() => ({ ok: false }));
+
+  if (!result.ok) {
+    pollingInFlight = false;
+    if (result.stale) {
+      warnStaleFunction();
+    } else {
+      setSyncBadgeState(pollingEnabled ? 'on' : 'off');
+      if (!silent) showToast('❌ Falha ao consultar a Tuya', 'error');
+    }
+    return;
+  }
+
+  const statuses = result.statuses;
 
   let changes = 0;
   for (const d of targets) {
