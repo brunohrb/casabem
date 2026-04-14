@@ -689,6 +689,112 @@
     .reminder-src { font-size: 10px; color: var(--text2); margin-left: auto; }
 
     /* ============================================================
+       REGRAS DE AUTOMAÇÃO
+    ============================================================ */
+    .rules-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 260px;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+
+    .rule-item {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--purple);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      font-size: 12px;
+      position: relative;
+      transition: opacity 0.2s;
+    }
+    .rule-item.disabled { opacity: 0.45; border-left-color: var(--text2); }
+    .rule-item.running {
+      border-left-color: var(--orange);
+      background: #fff8ed;
+      box-shadow: 0 0 0 2px rgba(224,122,32,0.12);
+    }
+
+    .rule-head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+    .rule-name {
+      font-weight: 700;
+      color: var(--text);
+      flex: 1;
+      font-size: 12px;
+    }
+    .rule-actions {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+    .rule-btn {
+      background: none;
+      border: none;
+      font-size: 13px;
+      cursor: pointer;
+      padding: 2px 4px;
+      color: var(--text2);
+      border-radius: 4px;
+      transition: all 0.15s;
+    }
+    .rule-btn:hover { background: #fff; color: var(--accent); }
+    .rule-btn.del:hover { color: var(--red); }
+
+    .rule-desc {
+      font-size: 11px;
+      color: var(--text2);
+      line-height: 1.4;
+    }
+    .rule-desc .pill {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 8px;
+      background: #fff;
+      border: 1px solid var(--border);
+      font-weight: 600;
+      color: var(--text);
+      margin: 0 2px;
+    }
+
+    .rule-countdown {
+      margin-top: 4px;
+      font-size: 10px;
+      color: var(--orange);
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+
+    .add-rule-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      width: 100%;
+      padding: 9px;
+      border: 1.5px dashed var(--border);
+      background: transparent;
+      color: var(--text2);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: all 0.2s;
+      margin-top: 8px;
+    }
+    .add-rule-btn:hover {
+      border-color: var(--purple);
+      color: var(--purple);
+      background: #faf7ff;
+    }
+
+    /* ============================================================
        MODAL
     ============================================================ */
     .modal-overlay {
@@ -1158,6 +1264,20 @@
       </div>
     </div>
 
+    <!-- Regras de Automação -->
+    <div class="sidebar-section">
+      <h3>🔄 Regras de Automação</h3>
+      <div class="rules-list" id="rulesList">
+        <div class="empty-state" style="padding:16px">
+          <div>⚙️</div>
+          <div>Nenhuma regra criada</div>
+        </div>
+      </div>
+      <button class="add-rule-btn" onclick="openRuleModal()">
+        <span>➕</span> Nova Regra
+      </button>
+    </div>
+
     <!-- Log de Comandos -->
     <div class="sidebar-section" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
       <h3>📊 Últimos Comandos</h3>
@@ -1188,6 +1308,7 @@
         <option value="light">💡 Luz / Lâmpada</option>
         <option value="ac">❄️ Ar Condicionado</option>
         <option value="tv">📺 TV</option>
+        <option value="vacuum">🤖 Aspirador Robô</option>
         <option value="other">🔌 Outro</option>
       </select>
     </div>
@@ -1207,6 +1328,71 @@
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="saveDevice()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     MODAL - Nova Regra de Automação
+============================================================ -->
+<div class="modal-overlay" id="ruleModalOverlay" onclick="if(event.target===this)closeRuleModal()">
+  <div class="modal">
+    <h2>🔄 Nova Regra de Automação</h2>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:14px">
+      Exemplo: <em>quando a Luz da Cristaleira ligar, desligar em 1 minuto.</em>
+    </p>
+
+    <div class="form-row">
+      <label>Nome da regra</label>
+      <input type="text" id="ruleName" placeholder="Ex: Cristaleira auto-desliga" />
+    </div>
+
+    <div class="form-row">
+      <label>Quando este dispositivo…</label>
+      <select id="ruleTriggerDevice"></select>
+    </div>
+
+    <div class="form-row">
+      <label>…for</label>
+      <select id="ruleTriggerEvent">
+        <option value="on">Ligado</option>
+        <option value="off">Desligado</option>
+      </select>
+    </div>
+
+    <div class="form-row" style="display:grid;grid-template-columns:1fr 110px;gap:8px">
+      <div>
+        <label>Após (tempo)</label>
+        <input type="number" id="ruleDelayValue" min="1" value="1" />
+      </div>
+      <div>
+        <label>Unidade</label>
+        <select id="ruleDelayUnit">
+          <option value="60">Minutos</option>
+          <option value="1">Segundos</option>
+          <option value="3600">Horas</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label>Então executar</label>
+      <select id="ruleActionEvent">
+        <option value="off">Desligar</option>
+        <option value="on">Ligar</option>
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label>Neste dispositivo</label>
+      <select id="ruleTargetDevice">
+        <option value="__same__">🔁 Mesmo do gatilho</option>
+      </select>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeRuleModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveRule()">Salvar Regra</button>
     </div>
   </div>
 </div>
@@ -1248,6 +1434,7 @@ async function loadAll() {
   await Promise.all([loadDevices(), loadReminders(), loadLog()]);
   updateStats();
   renderDevices();
+  renderRules();
 }
 
 // ============================================================
@@ -1305,7 +1492,7 @@ function renderDevices() {
 }
 
 function deviceCardHTML(d) {
-  const icons = { light:'💡', ac:'❄️', tv:'📺', other:'🔌' };
+  const icons = { light:'💡', ac:'❄️', tv:'📺', vacuum:'🤖', other:'🔌' };
   const icon  = icons[d.type] || '🔌';
 
   let extraControls = '';
@@ -1348,8 +1535,34 @@ function deviceCardHTML(d) {
       </div>`;
   }
 
+  if (d.type === 'vacuum') {
+    extraControls = `
+      <div class="mode-btns">
+        <button class="mode-btn ${d.status ? 'active' : ''}"
+          onclick="updateDevice('${d.id}',{status:true})">🧹 Limpar</button>
+        <button class="mode-btn"
+          onclick="updateDevice('${d.id}',{status:false})">⏸️ Pausar</button>
+        <button class="mode-btn"
+          onclick="vacuumDock('${d.id}')">🏠 Voltar à base</button>
+        <button class="mode-btn"
+          onclick="vacuumLocate('${d.id}')">📍 Localizar</button>
+      </div>`;
+  }
+
   const sourceClass = d.last_changed === 'alexa' ? 'source-alexa' : 'source-dashboard';
   const sourceLabel = d.last_changed === 'alexa' ? '🎙️ Alexa' : '🖥️ Painel';
+
+  // Texto informativo conforme o tipo e estado
+  let infoText;
+  if (d.status) {
+    if (d.type === 'ac')          infoText = `${d.temperature || 22}°C · ${d.ac_mode || 'cool'}`;
+    else if (d.type === 'tv')     infoText = `Vol: ${d.volume || 30}`;
+    else if (d.type === 'light')  infoText = `${d.brightness || 100}%`;
+    else if (d.type === 'vacuum') infoText = '🧹 Limpando';
+    else                          infoText = 'Ligado';
+  } else {
+    infoText = d.type === 'vacuum' ? 'Na base' : 'Desligado';
+  }
 
   return `
     <div class="device-card ${d.status ? 'on' : ''}" id="card-${d.id}">
@@ -1362,12 +1575,7 @@ function deviceCardHTML(d) {
         </label>
       </div>
       <div class="device-name">${d.name}</div>
-      <div class="device-info">
-        ${d.type === 'ac' && d.status ? `${d.temperature || 22}°C · ${d.ac_mode || 'cool'}` : ''}
-        ${d.type === 'tv' && d.status ? `Vol: ${d.volume || 30}` : ''}
-        ${d.type === 'light' && d.status ? `${d.brightness || 100}%` : d.status ? 'Ligado' : 'Desligado'}
-        ${!d.status && d.type !== 'light' ? 'Desligado' : ''}
-      </div>
+      <div class="device-info">${infoText}</div>
       <span class="source-badge ${sourceClass}">${sourceLabel}</span>
       ${extraControls ? `
         <div class="card-controls">${extraControls}</div>
@@ -1429,6 +1637,47 @@ async function updateDevice(id, fields) {
   if (isToggle) {
     showToast(`${device.name} ${fields.status ? 'ligado ✅' : 'desligado 🔴'}`, fields.status ? 'success' : 'info');
   }
+
+  // ── Dispara regras de automação ──
+  if ('status' in fields) {
+    markTriggerFired(id, fields.status);
+    evaluateRules(id, fields.status);
+  }
+}
+
+// ============================================================
+// AÇÕES DO ASPIRADOR ROBÔ
+// ============================================================
+async function vacuumDock(id) {
+  const device = allDevices.find(d => d.id === id);
+  if (!device) return;
+  // Manda parar (status=false) e envia ação "dock" via Tuya, se disponível
+  await updateDevice(id, { status: false });
+  if (device.tuya_device_id) {
+    try {
+      await fetch(TUYA_EDGE_FN, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({ action: 'vacuum_dock', device_id: device.tuya_device_id }),
+      });
+    } catch (e) { console.warn('Tuya dock error:', e); }
+  }
+  showToast(`🏠 ${device.name} voltando para a base`, 'info');
+}
+
+async function vacuumLocate(id) {
+  const device = allDevices.find(d => d.id === id);
+  if (!device) return;
+  if (device.tuya_device_id) {
+    try {
+      await fetch(TUYA_EDGE_FN, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({ action: 'vacuum_locate', device_id: device.tuya_device_id }),
+      });
+    } catch (e) { console.warn('Tuya locate error:', e); }
+  }
+  showToast(`📍 ${device.name} emitindo som de localização`, 'info');
 }
 
 // ============================================================
@@ -1528,7 +1777,7 @@ const MAP_ROOMS = [
 ];
 
 function deviceIcon(type, on) {
-  const icons = { light: '💡', ac: '❄️', tv: '📺', other: '🔌' };
+  const icons = { light: '💡', ac: '❄️', tv: '📺', vacuum: '🤖', other: '🔌' };
   return icons[type] || '🔌';
 }
 
@@ -1691,6 +1940,262 @@ async function toggleReminder(id, done) {
 }
 
 // ============================================================
+// REGRAS DE AUTOMAÇÃO
+// ------------------------------------------------------------
+// Armazenadas em localStorage (sem necessidade de migração no
+// Supabase). Formato de cada regra:
+// {
+//   id, name,
+//   trigger_device_id, trigger_event ('on'|'off'),
+//   delay_seconds,
+//   action_event ('on'|'off'), target_device_id,
+//   enabled, created_at
+// }
+// ============================================================
+const RULES_KEY = 'casabem_automation_rules';
+const pendingRuleTimers = new Map();   // rule_id -> { timeoutId, endsAt }
+const recentlyFiredTriggers = new Map(); // "deviceId:status" -> ts (dedupe realtime echo)
+
+function loadRules() {
+  try { return JSON.parse(localStorage.getItem(RULES_KEY) || '[]'); }
+  catch { return []; }
+}
+
+function saveRules(rules) {
+  localStorage.setItem(RULES_KEY, JSON.stringify(rules));
+}
+
+function renderRules() {
+  const el = document.getElementById('rulesList');
+  const rules = loadRules();
+
+  if (rules.length === 0) {
+    el.innerHTML = `
+      <div class="empty-state" style="padding:16px">
+        <div>⚙️</div>
+        <div>Nenhuma regra criada</div>
+        <div style="font-size:11px;margin-top:4px">
+          Ex: Cristaleira ligou → desliga em 1 min
+        </div>
+      </div>`;
+    return;
+  }
+
+  el.innerHTML = rules.map(r => {
+    const trig   = allDevices.find(d => d.id === r.trigger_device_id);
+    const target = allDevices.find(d => d.id === r.target_device_id);
+    const trigName   = trig   ? trig.name   : '⚠️ dispositivo removido';
+    const targetName = target ? target.name : '⚠️ dispositivo removido';
+    const delayLabel = formatDelay(r.delay_seconds);
+    const pending    = pendingRuleTimers.get(r.id);
+    const runningCls = pending ? ' running' : '';
+    const disabledCls= r.enabled ? '' : ' disabled';
+
+    return `
+      <div class="rule-item${runningCls}${disabledCls}" id="rule-${r.id}">
+        <div class="rule-head">
+          <span class="rule-name">${r.enabled ? '🟢' : '⚪'} ${escapeHtml(r.name)}</span>
+          <div class="rule-actions">
+            <button class="rule-btn" title="${r.enabled ? 'Desativar' : 'Ativar'}"
+              onclick="toggleRule('${r.id}')">${r.enabled ? '⏸️' : '▶️'}</button>
+            <button class="rule-btn del" title="Excluir"
+              onclick="deleteRule('${r.id}')">🗑️</button>
+          </div>
+        </div>
+        <div class="rule-desc">
+          Quando <span class="pill">${escapeHtml(trigName)}</span>
+          ${r.trigger_event === 'on' ? 'ligar' : 'desligar'},
+          após <span class="pill">${delayLabel}</span>
+          ${r.action_event === 'on' ? 'ligar' : 'desligar'}
+          <span class="pill">${escapeHtml(targetName)}</span>.
+        </div>
+        ${pending ? `<div class="rule-countdown" id="rc-${r.id}">⏱️ Disparando em ${Math.ceil((pending.endsAt - Date.now())/1000)}s</div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function formatDelay(secs) {
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.round(secs/60)} min`;
+  return `${(secs/3600).toFixed(1)} h`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+  ));
+}
+
+function openRuleModal() {
+  if (allDevices.length === 0) {
+    showToast('Cadastre pelo menos um dispositivo antes', 'error');
+    return;
+  }
+  const trig = document.getElementById('ruleTriggerDevice');
+  const tgt  = document.getElementById('ruleTargetDevice');
+  // Opções de dispositivo
+  const opts = allDevices.map(d =>
+    `<option value="${d.id}">${d.name} · ${d.room}</option>`
+  ).join('');
+  trig.innerHTML = opts;
+  tgt.innerHTML  = `<option value="__same__">🔁 Mesmo do gatilho</option>` + opts;
+
+  // Pré-seleção inteligente: se houver "Cristaleira", usa ela
+  const cristal = allDevices.find(d => /cristaleira/i.test(d.name));
+  if (cristal) {
+    trig.value = cristal.id;
+    document.getElementById('ruleName').value = `${cristal.name} - auto desliga`;
+  } else {
+    document.getElementById('ruleName').value = '';
+  }
+
+  document.getElementById('ruleDelayValue').value = 1;
+  document.getElementById('ruleDelayUnit').value  = '60';
+  document.getElementById('ruleTriggerEvent').value = 'on';
+  document.getElementById('ruleActionEvent').value  = 'off';
+  document.getElementById('ruleModalOverlay').classList.add('open');
+  setTimeout(() => document.getElementById('ruleName').focus(), 100);
+}
+
+function closeRuleModal() {
+  document.getElementById('ruleModalOverlay').classList.remove('open');
+}
+
+function saveRule() {
+  const name    = document.getElementById('ruleName').value.trim();
+  const trig    = document.getElementById('ruleTriggerDevice').value;
+  const trigEv  = document.getElementById('ruleTriggerEvent').value;
+  const delayV  = parseInt(document.getElementById('ruleDelayValue').value, 10);
+  const unit    = parseInt(document.getElementById('ruleDelayUnit').value, 10);
+  const actEv   = document.getElementById('ruleActionEvent').value;
+  let tgt       = document.getElementById('ruleTargetDevice').value;
+
+  if (!name || !trig || !delayV || delayV < 1) {
+    showToast('Preencha todos os campos', 'error');
+    return;
+  }
+  if (tgt === '__same__') tgt = trig;
+
+  const rule = {
+    id: 'r_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6),
+    name,
+    trigger_device_id: trig,
+    trigger_event:     trigEv,
+    delay_seconds:     delayV * unit,
+    action_event:      actEv,
+    target_device_id:  tgt,
+    enabled: true,
+    created_at: new Date().toISOString(),
+  };
+
+  const rules = loadRules();
+  rules.push(rule);
+  saveRules(rules);
+  renderRules();
+  closeRuleModal();
+  showToast(`✅ Regra "${name}" criada`, 'success');
+}
+
+function toggleRule(id) {
+  const rules = loadRules();
+  const r = rules.find(x => x.id === id);
+  if (!r) return;
+  r.enabled = !r.enabled;
+  saveRules(rules);
+  // Se desabilitou, cancela timer pendente
+  if (!r.enabled) cancelRuleTimer(id);
+  renderRules();
+  showToast(r.enabled ? `▶️ Regra ativada` : `⏸️ Regra pausada`, 'info');
+}
+
+function deleteRule(id) {
+  cancelRuleTimer(id);
+  const rules = loadRules().filter(x => x.id !== id);
+  saveRules(rules);
+  renderRules();
+  showToast('🗑️ Regra removida', 'info');
+}
+
+function cancelRuleTimer(ruleId) {
+  const p = pendingRuleTimers.get(ruleId);
+  if (p) {
+    clearTimeout(p.timeoutId);
+    pendingRuleTimers.delete(ruleId);
+  }
+}
+
+// Avalia regras quando um dispositivo muda de estado
+function evaluateRules(deviceId, newStatus) {
+  const rules = loadRules().filter(r =>
+    r.enabled && r.trigger_device_id === deviceId
+  );
+
+  for (const r of rules) {
+    const triggerMatches =
+      (r.trigger_event === 'on'  && newStatus === true) ||
+      (r.trigger_event === 'off' && newStatus === false);
+
+    // Se o dispositivo voltou ao estado oposto, cancela qualquer timer pendente
+    if (!triggerMatches) {
+      if (pendingRuleTimers.has(r.id)) {
+        cancelRuleTimer(r.id);
+        renderRules();
+      }
+      continue;
+    }
+
+    // Reinicia timer (sobrescreve pendente)
+    cancelRuleTimer(r.id);
+    const target = allDevices.find(d => d.id === r.target_device_id);
+    if (!target) continue;
+
+    const endsAt = Date.now() + r.delay_seconds * 1000;
+    const timeoutId = setTimeout(async () => {
+      pendingRuleTimers.delete(r.id);
+      try {
+        await updateDevice(r.target_device_id, { status: r.action_event === 'on' });
+        showToast(`🤖 "${r.name}" executada`, 'success');
+      } catch (e) {
+        console.warn('Rule fire error', e);
+      }
+      renderRules();
+    }, r.delay_seconds * 1000);
+
+    pendingRuleTimers.set(r.id, { timeoutId, endsAt });
+    showToast(
+      `⏱️ "${r.name}" em ${formatDelay(r.delay_seconds)}`,
+      'info'
+    );
+    renderRules();
+  }
+}
+
+// Atualiza o countdown visual a cada segundo
+setInterval(() => {
+  if (pendingRuleTimers.size === 0) return;
+  for (const [id, p] of pendingRuleTimers.entries()) {
+    const el = document.getElementById('rc-' + id);
+    if (el) {
+      const left = Math.max(0, Math.ceil((p.endsAt - Date.now()) / 1000));
+      el.textContent = `⏱️ Disparando em ${left}s`;
+    }
+  }
+}, 1000);
+
+// Dedupe para não disparar 2x quando o painel atualiza e a realtime
+// ecoa o mesmo evento de volta.
+function markTriggerFired(deviceId, status) {
+  const key = `${deviceId}:${status ? 1 : 0}`;
+  recentlyFiredTriggers.set(key, Date.now());
+  setTimeout(() => recentlyFiredTriggers.delete(key), 3000);
+}
+function wasRecentlyFired(deviceId, status) {
+  const key = `${deviceId}:${status ? 1 : 0}`;
+  const ts = recentlyFiredTriggers.get(key);
+  return ts && (Date.now() - ts) < 3000;
+}
+
+// ============================================================
 // MODAL - NOVO DISPOSITIVO
 // ============================================================
 function openModal(room = '') {
@@ -1727,9 +2232,16 @@ async function saveDevice() {
 function subscribeRealtime() {
   db.channel('casa-realtime')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'devices' }, (payload) => {
+      let externalStatusChange = null;  // { id, status } se veio de fora
       if (payload.eventType === 'UPDATE') {
         const idx = allDevices.findIndex(d => d.id === payload.new.id);
+        const oldStatus = idx !== -1 ? allDevices[idx].status : null;
         if (idx !== -1) allDevices[idx] = { ...allDevices[idx], ...payload.new };
+        // Se o status mudou e NÃO foi eco de uma ação local, avalia regras
+        if (payload.new.status !== oldStatus
+            && !wasRecentlyFired(payload.new.id, payload.new.status)) {
+          externalStatusChange = { id: payload.new.id, status: payload.new.status };
+        }
       } else if (payload.eventType === 'INSERT') {
         if (!allDevices.find(d => d.id === payload.new.id)) allDevices.push(payload.new);
       } else if (payload.eventType === 'DELETE') {
@@ -1737,6 +2249,10 @@ function subscribeRealtime() {
       }
       updateStats();
       renderDevices();
+      renderRules();
+      if (externalStatusChange) {
+        evaluateRules(externalStatusChange.id, externalStatusChange.status);
+      }
     })
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'commands_log' }, (payload) => {
       const el = document.getElementById('logList');
@@ -1941,10 +2457,11 @@ function handleCommand(text) {
 
   const clean = text.trim();
 
-  const isLigar    = /\b(liga[r]?|acend[ae][r]?|ativa[r]?)\b/.test(clean);
-  const isDesligar = /\b(desliga[r]?|apag[ae][r]?|desativ[ae][r]?)\b/.test(clean);
+  const isLigar    = /\b(liga[r]?|acend[ae][r]?|ativa[r]?|inicia[r]?|comeca[r]?|come[çc]a[r]?|limp[ae][r]?)\b/.test(clean);
+  const isDesligar = /\b(desliga[r]?|apag[ae][r]?|desativ[ae][r]?|par[ae][r]?|pausa[r]?)\b/.test(clean);
   const isLuz      = /\b(luz|luzes|l[aâ]mpada|ilumina[çc][aã]o)\b/.test(clean);
   const isAr       = /\b(ar|clima|ar.condicionado|arcondicionado|ac)\b/.test(clean);
+  const isVacuum   = /\b(aspirador|rob[oôõ]|roomba|limpeza)\b/.test(clean);
 
   const roomMap = {
     'Sala':            ['sala', 'estar', 'jantar', 'living'],
@@ -1964,8 +2481,9 @@ function handleCommand(text) {
 
   let targets = allDevices;
   if (targetRoom) targets = targets.filter(d => d.room === targetRoom);
-  if (isLuz && !isAr) targets = targets.filter(d => d.type === 'light');
-  if (isAr && !isLuz) targets = targets.filter(d => d.type === 'ac');
+  if (isLuz && !isAr && !isVacuum) targets = targets.filter(d => d.type === 'light');
+  if (isAr && !isLuz && !isVacuum) targets = targets.filter(d => d.type === 'ac');
+  if (isVacuum) targets = targets.filter(d => d.type === 'vacuum');
 
   const action = isLigar ? true : isDesligar ? false : null;
 
@@ -1986,7 +2504,7 @@ function handleCommand(text) {
 
   Promise.all(toChange.map(d => updateDevice(d.id, { status: action }))).then(() => {
     const roomLabel = targetRoom ? ` — ${targetRoom}` : '';
-    const typeLabel = isLuz ? ' 💡' : isAr ? ' ❄️' : ' 🔌';
+    const typeLabel = isLuz ? ' 💡' : isAr ? ' ❄️' : isVacuum ? ' 🤖' : ' 🔌';
     const msg = (action ? '✅ Ligado' : '🌙 Desligado') + typeLabel + roomLabel;
     showVoiceOverlay(msg, true);
     showToast(msg, action ? 'success' : 'info');
