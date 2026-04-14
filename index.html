@@ -1352,6 +1352,23 @@
         <option value="Garagem"></option>
       </datalist>
     </div>
+
+    <!-- Integração Tuya (opcional) -->
+    <details style="margin-bottom:14px">
+      <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--accent)">
+        ⚙️ Integração Tuya (opcional)
+      </summary>
+      <div style="margin-top:10px">
+        <div class="form-row">
+          <label>Tuya Device ID</label>
+          <input type="text" id="newTuyaId" placeholder="Ex: vdevo17xxxxxxxxxxx" />
+        </div>
+        <div class="form-row" id="irParentRow" style="display:none">
+          <label>IR Blaster pai <small style="color:var(--text2)">(necessário p/ TV e AC)</small></label>
+          <input type="text" id="newIrParent" placeholder="ID do IR Blaster Tuya" />
+        </div>
+      </div>
+    </details>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="saveDevice()">Salvar</button>
@@ -2426,22 +2443,41 @@ function wasRecentlyFired(deviceId, status) {
 function openModal(room = '') {
   document.getElementById('newRoom').value = room;
   document.getElementById('newName').value = '';
+  document.getElementById('newTuyaId').value = '';
+  document.getElementById('newIrParent').value = '';
+  updateIrParentVisibility();
   document.getElementById('modalOverlay').classList.add('open');
   setTimeout(() => document.getElementById('newName').focus(), 100);
 }
+
+function updateIrParentVisibility() {
+  const type = document.getElementById('newType').value;
+  const row  = document.getElementById('irParentRow');
+  row.style.display = (type === 'tv' || type === 'ac') ? '' : 'none';
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('newType');
+  if (sel) sel.addEventListener('change', updateIrParentVisibility);
+});
 
 function closeModal() {
   document.getElementById('modalOverlay').classList.remove('open');
 }
 
 async function saveDevice() {
-  const name = document.getElementById('newName').value.trim();
-  const type = document.getElementById('newType').value;
-  const room = document.getElementById('newRoom').value.trim();
+  const name      = document.getElementById('newName').value.trim();
+  const type      = document.getElementById('newType').value;
+  const room      = document.getElementById('newRoom').value.trim();
+  const tuyaId    = document.getElementById('newTuyaId').value.trim();
+  const irParent  = document.getElementById('newIrParent').value.trim();
 
   if (!name || !room) { showToast('Preencha nome e cômodo', 'error'); return; }
 
-  const { data, error } = await db.from('devices').insert({ name, type, room }).select().single();
+  const row = { name, type, room };
+  if (tuyaId)   row.tuya_device_id    = tuyaId;
+  if (irParent) row.tuya_ir_parent_id = irParent;
+
+  const { data, error } = await db.from('devices').insert(row).select().single();
   if (error) { showToast('Erro ao salvar dispositivo', 'error'); return; }
 
   allDevices.push(data);
