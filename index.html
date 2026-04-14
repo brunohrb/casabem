@@ -504,6 +504,28 @@
 
     .source-alexa     { background: #e8f0fc; color: var(--accent); }
     .source-dashboard { background: #e8faf0; color: var(--green); }
+    .source-manual    { background: #fff3e0; color: var(--orange); }
+
+    /* Indicador do polling no header */
+    .sync-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text2);
+      background: var(--bg3);
+      padding: 6px 12px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: all 0.2s;
+      user-select: none;
+    }
+    .sync-badge:hover { border-color: var(--orange); color: var(--orange); }
+    .sync-badge.on    { border-color: var(--orange); color: var(--orange); background: #fff8ed; }
+    .sync-badge.syncing .sync-icon { animation: spin 0.8s linear infinite; display:inline-block; }
+    .sync-icon { font-size: 13px; }
 
     /* ============================================================
        ADD DEVICE CARD
@@ -624,6 +646,7 @@
 
     .log-item.alexa     { border-left-color: var(--accent); }
     .log-item.dashboard { border-left-color: var(--green); }
+    .log-item.manual    { border-left-color: var(--orange); }
 
     .log-cmd  { font-weight: 600; margin-bottom: 2px; color: var(--text); }
     .log-meta { font-size: 10px; color: var(--text2); display: flex; gap: 8px; }
@@ -1148,6 +1171,10 @@
       <span class="mic-icon">🎤</span>
       <span id="micLabel">BEM</span>
     </button>
+    <button class="sync-badge" id="syncBadge" onclick="togglePolling()" title="Detecta interruptor físico (polling Tuya)">
+      <span class="sync-icon" id="syncIcon">🔌</span>
+      <span id="syncLabel">Detecção física</span>
+    </button>
     <div class="status-badge">
       <div class="status-dot" id="statusDot"></div>
       <span id="statusText">Conectando...</span>
@@ -1428,6 +1455,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   subscribeRealtime();
   // Inicia escuta de voz automática (pede permissão de microfone na 1ª vez)
   autoStartVoice();
+  // Inicia detecção de interruptor físico (polling Tuya)
+  startPolling();
 });
 
 async function loadAll() {
@@ -1549,8 +1578,14 @@ function deviceCardHTML(d) {
       </div>`;
   }
 
-  const sourceClass = d.last_changed === 'alexa' ? 'source-alexa' : 'source-dashboard';
-  const sourceLabel = d.last_changed === 'alexa' ? '🎙️ Alexa' : '🖥️ Painel';
+  const sourceClass =
+    d.last_changed === 'alexa'  ? 'source-alexa'  :
+    d.last_changed === 'manual' ? 'source-manual' :
+    'source-dashboard';
+  const sourceLabel =
+    d.last_changed === 'alexa'  ? '🎙️ Alexa' :
+    d.last_changed === 'manual' ? '🔌 Interruptor' :
+    '🖥️ Painel';
 
   // Texto informativo conforme o tipo e estado
   let infoText;
@@ -1611,17 +1646,48 @@ async function updateDevice(id, fields) {
   });
 
   // ── Controle físico via Tuya (se dispositivo tiver tuya_device_id) ──
-  if ('status' in fields && device.tuya_device_id) {
+  if (device.tuya_device_id) {
+    // Monta payload enriquecido com o tipo e parâmetros. A Edge Function
+    // 'tuya-control' precisa conhecer cada tipo:
+    //   light  → usa switch_led / bright_value (smart bulb/plug)
+    //   ac     → envia comandos IR via IR Blaster (temperature, ac_mode)
+    //   tv     → envia comandos IR (power, volume) via IR Blaster
+    //   vacuum → usa power_go / mode (chargego, smart, pause)
+    //   other  → on/off simples
+    const merged = { ...device, ...fields };
+    const payload = {
+      action:     'control',
+      device_id:  device.tuya_device_id,
+      device_ir_parent: device.tuya_ir_parent_id || null, // IR Blaster pai (TV/AC)
+      type:       device.type,
+      value:      'status' in fields ? fields.status : merged.status,
+      params: {
+        status:      merged.status,
+        brightness:  merged.brightness,
+        temperature: merged.temperature,
+        ac_mode:     merged.ac_mode,
+        volume:      merged.volume,
+        vacuum_mode: merged.vacuum_mode,
+      },
+      changed: Object.keys(fields).filter(k => k !== 'last_changed'),
+    };
     try {
       const resp = await fetch(TUYA_EDGE_FN, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
-        body: JSON.stringify({ action: 'control', device_id: device.tuya_device_id, value: fields.status }),
+        body: JSON.stringify(payload),
       });
-      const result = await resp.json();
+      const result = await resp.json().catch(() => ({}));
       if (!result.success) {
-        console.warn('Tuya control failed:', result);
-        showToast(`${device.name}: erro Tuya ⚠️`, 'error');
+        console.warn('Tuya control failed:', result, payload);
+        // Aviso mais informativo conforme o tipo
+        const hint =
+          device.type === 'ac' || device.type === 'tv'
+            ? '(precisa IR Blaster configurado)'
+            : device.type === 'vacuum'
+              ? '(comandos específicos do robô)'
+              : '';
+        showToast(`${device.name}: Tuya não respondeu ⚠️ ${hint}`, 'error');
       }
     } catch (e) {
       console.warn('Tuya fetch error:', e);
@@ -1888,7 +1954,7 @@ function renderLog(logs) {
     <div class="log-item ${l.source}">
       <div class="log-cmd">${l.command}</div>
       <div class="log-meta">
-        <span>${l.source === 'alexa' ? '🎙️ Alexa' : '🖥️ Painel'}</span>
+        <span>${l.source === 'alexa' ? '🎙️ Alexa' : l.source === 'manual' ? '🔌 Interruptor' : '🖥️ Painel'}</span>
         <span>${l.device_name}</span>
         <span>${new Date(l.created_at).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}</span>
       </div>
@@ -1937,6 +2003,165 @@ async function toggleReminder(id, done) {
   const r = allReminders.find(r => r.id === id);
   if (r) r.done = done;
   renderReminders();
+}
+
+// ============================================================
+// DETECÇÃO DE ESTADO FÍSICO (interruptor manual / app Tuya)
+// ------------------------------------------------------------
+// O painel, a Alexa e este app atualizam o Supabase quando
+// mandam um comando. Mas se alguém vai até a parede e liga
+// a luz "no dedo" no interruptor físico, nem o Supabase nem
+// o painel ficam sabendo — e a regra de automação não dispara.
+//
+// Solução: a cada POLL_INTERVAL_MS perguntamos pra Tuya o
+// estado real dos dispositivos. Se estiver diferente do
+// cache local, significa que foi uma ação MANUAL — atualiza
+// o banco com last_changed='manual' e dispara as regras.
+//
+// Requer que a Edge Function 'tuya-control' suporte uma das
+// actions abaixo:
+//   { action: 'status_all', device_ids: [...] }
+//     → { success: true, statuses: { tuya_id: true/false, ... } }
+//   { action: 'status', device_id: '...' }
+//     → { success: true, status: true/false }
+// Se a function ainda não suportar, os requests caem em
+// catch silencioso e o recurso fica ocioso até ser atualizado.
+// ============================================================
+const POLL_INTERVAL_MS = 15000;
+let pollingEnabled  = localStorage.getItem('casabem_poll_enabled') !== 'false';
+let pollingHandle   = null;
+let pollingInFlight = false;
+
+function setSyncBadgeState(state) {
+  const badge = document.getElementById('syncBadge');
+  const label = document.getElementById('syncLabel');
+  if (!badge) return;
+  badge.classList.remove('on', 'syncing');
+  if (state === 'on')       { badge.classList.add('on');            label.textContent = 'Detecção física'; }
+  else if (state === 'sync'){ badge.classList.add('on', 'syncing'); label.textContent = 'Sincronizando…'; }
+  else                      { label.textContent = 'Detecção física'; }
+}
+
+async function tuyaStatusBatch(devices) {
+  // Tenta batch primeiro
+  try {
+    const resp = await fetch(TUYA_EDGE_FN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
+      body: JSON.stringify({
+        action: 'status_all',
+        device_ids: devices.map(d => d.tuya_device_id),
+      }),
+    });
+    if (resp.ok) {
+      const json = await resp.json();
+      if (json && json.success && json.statuses) return json.statuses;
+    }
+  } catch (e) { /* cai no fallback */ }
+
+  // Fallback: um a um
+  const out = {};
+  for (const d of devices) {
+    try {
+      const resp = await fetch(TUYA_EDGE_FN, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({ action: 'status', device_id: d.tuya_device_id }),
+      });
+      if (!resp.ok) continue;
+      const json = await resp.json();
+      if (json && json.success && typeof json.status === 'boolean') {
+        out[d.tuya_device_id] = json.status;
+      }
+    } catch (e) { /* ignora */ }
+  }
+  return out;
+}
+
+async function syncPhysicalState({ silent = true } = {}) {
+  if (pollingInFlight) return;
+  const targets = allDevices.filter(d => d.tuya_device_id);
+  if (targets.length === 0) return;
+
+  pollingInFlight = true;
+  if (!silent) setSyncBadgeState('sync');
+
+  let statuses = {};
+  try {
+    statuses = await tuyaStatusBatch(targets);
+  } catch (e) { console.warn('sync error', e); }
+
+  let changes = 0;
+  for (const d of targets) {
+    const real = statuses[d.tuya_device_id];
+    if (real === undefined || real === null) continue;
+    if (real === d.status) continue;
+
+    // Ignora eco de uma ação que acabamos de mandar
+    if (wasRecentlyFired(d.id, real)) continue;
+
+    console.log(`[sync] ${d.name}: painel=${d.status} → físico=${real}`);
+    changes++;
+
+    // Atualiza estado local IMEDIATAMENTE
+    d.status        = real;
+    d.last_changed  = 'manual';
+
+    // Persiste no Supabase
+    await db.from('devices')
+      .update({ status: real, last_changed: 'manual' })
+      .eq('id', d.id);
+
+    await db.from('commands_log').insert({
+      device_id:   d.id,
+      device_name: d.name,
+      command:     `Manual: ${real ? 'ligado' : 'desligado'} no interruptor`,
+      source:      'manual',
+      success:     true,
+    });
+
+    // 🎯 Dispara regras — igualzinho a Alexa/painel
+    evaluateRules(d.id, real);
+  }
+
+  if (changes > 0) {
+    updateStats();
+    renderDevices();
+    showToast(`🔌 ${changes} mudança(s) detectada(s) no interruptor`, 'info');
+  } else if (!silent) {
+    showToast('✅ Tudo sincronizado', 'success');
+  }
+
+  pollingInFlight = false;
+  setSyncBadgeState(pollingEnabled ? 'on' : 'off');
+}
+
+function startPolling() {
+  clearInterval(pollingHandle);
+  if (!pollingEnabled) { setSyncBadgeState('off'); return; }
+  setSyncBadgeState('on');
+  pollingHandle = setInterval(() => syncPhysicalState({ silent: true }), POLL_INTERVAL_MS);
+  // Primeira sondagem logo depois de carregar
+  setTimeout(() => syncPhysicalState({ silent: true }), 2000);
+}
+
+function togglePolling() {
+  // Ctrl/Cmd + clique = força uma sincronização agora sem mudar o estado
+  if (window.event && (window.event.ctrlKey || window.event.metaKey)) {
+    syncPhysicalState({ silent: false });
+    return;
+  }
+  pollingEnabled = !pollingEnabled;
+  localStorage.setItem('casabem_poll_enabled', pollingEnabled ? 'true' : 'false');
+  if (pollingEnabled) {
+    startPolling();
+    showToast('🔌 Detecção de interruptor ATIVADA (a cada 15s)', 'success');
+  } else {
+    clearInterval(pollingHandle);
+    pollingHandle = null;
+    setSyncBadgeState('off');
+    showToast('⏸️ Detecção de interruptor pausada', 'info');
+  }
 }
 
 // ============================================================
@@ -2262,7 +2487,7 @@ function subscribeRealtime() {
       item.innerHTML = `
         <div class="log-cmd">${newLog.command}</div>
         <div class="log-meta">
-          <span>${newLog.source === 'alexa' ? '🎙️ Alexa' : '🖥️ Painel'}</span>
+          <span>${newLog.source === 'alexa' ? '🎙️ Alexa' : newLog.source === 'manual' ? '🔌 Interruptor' : '🖥️ Painel'}</span>
           <span>${newLog.device_name}</span>
           <span>${new Date(newLog.created_at).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}</span>
         </div>`;
