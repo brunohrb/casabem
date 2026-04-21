@@ -69,6 +69,19 @@ async function getTuyaToken(): Promise<string> {
   return data.result.access_token;
 }
 
+// Blindagem: alguns endpoints da Tuya às vezes devolvem `result` como
+// objeto em vez de array (dependendo da versão). Este helper garante
+// que toda iteração seja sobre array — evita "object is not iterable".
+function asArray<T = any>(x: any): T[] {
+  if (Array.isArray(x)) return x as T[];
+  if (x == null) return [];
+  // Formatos aninhados comuns: { list: [...] }, { devices: [...] }, etc.
+  for (const key of ["list", "devices", "remote_list", "remotes", "items", "data"]) {
+    if (Array.isArray(x?.[key])) return x[key] as T[];
+  }
+  return [];
+}
+
 async function tuyaRequest(
   method: string,
   path: string,
@@ -266,7 +279,10 @@ serve(async (req) => {
             { status: 500, headers: corsHeaders },
           );
         }
-        for (const d of (assocResp.result?.devices ?? [])) {
+        const assocDevices = Array.isArray(assocResp.result?.devices)
+          ? assocResp.result.devices
+          : asArray(assocResp.result);
+        for (const d of assocDevices) {
           if (d.uid) uidSet.add(d.uid);
         }
         if (!assocResp.result?.has_more) break;
@@ -293,7 +309,7 @@ serve(async (req) => {
           "GET", `/v1.0/users/${uid}/homes`, token,
         );
         if (!homesResp?.success) continue;
-        const homes = homesResp.result ?? [];
+        const homes = asArray<any>(homesResp.result);
 
         for (const home of homes) {
           const [roomsResp, devsResp]: any[] = await Promise.all([
@@ -303,10 +319,10 @@ serve(async (req) => {
 
           const roomMap: Record<string, string> = {};
           if (roomsResp?.success) {
-            for (const r of (roomsResp.result ?? [])) roomMap[r.room_id] = r.name;
+            for (const r of asArray<any>(roomsResp.result)) roomMap[r.room_id] = r.name;
           }
           if (devsResp?.success) {
-            for (const d of (devsResp.result ?? [])) {
+            for (const d of asArray<any>(devsResp.result)) {
               devices.push({
                 tuya_id:    d.id,
                 name:       d.name,
@@ -337,7 +353,7 @@ serve(async (req) => {
       );
       for (let i = 0; i < devices.length; i++) {
         const r: any = statusResps[i];
-        const status = Array.isArray(r?.result) ? r.result : [];
+        const status = asArray<any>(r?.result);
         const channels = status
           .map((s: any) => s.code)
           .filter((c: string) => CHANNEL_RE.test(c));
@@ -367,7 +383,7 @@ serve(async (req) => {
             `/v2.0/infrareds/${hub.tuya_id}/remotes`,
             token,
           );
-          const remotes = resp?.result ?? [];
+          const remotes = asArray<any>(resp?.result);
           for (const rr of remotes) {
             // API às vezes devolve remote_id, às vezes device_id.
             const rid = rr.remote_id || rr.device_id || rr.id;
@@ -421,8 +437,12 @@ serve(async (req) => {
     throw new Error("Unknown action: " + action);
 
   } catch (err) {
+    const msg = err instanceof Error
+      ? `${err.name}: ${err.message}${err.stack ? "\n" + err.stack.split("\n").slice(0, 3).join("\n") : ""}`
+      : String(err);
+    console.error("tuya-control error:", msg);
     return new Response(
-      JSON.stringify({ error: String(err) }),
+      JSON.stringify({ error: msg }),
       { status: 500, headers: corsHeaders }
     );
   }
