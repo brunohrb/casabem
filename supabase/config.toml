@@ -1,0 +1,13 @@
+# Configuração local do Supabase CLI para o projeto casa BEM.
+# Docs: https://supabase.com/docs/guides/cli/config
+
+project_id = "casabem"
+
+[functions.tuya-control]
+verify_jwt = false   # chamada pelo dashboard no browser com anon key
+
+[functions.tuya-sync]
+verify_jwt = false   # invocada pelo pg_cron com service role bearer
+
+[functions.timer-worker]
+verify_jwt = false   # invocada pelo pg_cron com service role bearer
