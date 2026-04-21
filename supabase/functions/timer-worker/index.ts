@@ -33,7 +33,18 @@ const db = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false },
 });
 
-Deno.serve(async () => {
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin":  "*",
+  "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey",
+};
+const JSON_HEADERS = { ...CORS_HEADERS, "Content-Type": "application/json" };
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: CORS_HEADERS });
+  }
+
   const started = Date.now();
   const nowIso  = new Date().toISOString();
 
@@ -49,12 +60,12 @@ Deno.serve(async () => {
 
   if (error) {
     return new Response(JSON.stringify({ success: false, error: error.message }), {
-      status: 500, headers: { "Content-Type": "application/json" },
+      status: 500, headers: JSON_HEADERS,
     });
   }
   if (!timers || timers.length === 0) {
     return new Response(JSON.stringify({ success: true, fired: 0 }), {
-      headers: { "Content-Type": "application/json" },
+      headers: JSON_HEADERS,
     });
   }
 
@@ -151,5 +162,5 @@ Deno.serve(async () => {
   return new Response(JSON.stringify({
     success: true, fired: results.length, results,
     took_ms: Date.now() - started,
-  }), { headers: { "Content-Type": "application/json" } });
+  }), { headers: JSON_HEADERS });
 });

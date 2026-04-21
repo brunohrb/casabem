@@ -71,7 +71,17 @@ function extractBrightness(points: Array<{ code: string; value: unknown }>): num
   return null;
 }
 
-Deno.serve(async () => {
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin":  "*",
+  "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey",
+};
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: CORS_HEADERS });
+  }
+
   const started = Date.now();
 
   try {
@@ -161,6 +171,6 @@ Deno.serve(async () => {
 function json(body: any, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
   });
 }
