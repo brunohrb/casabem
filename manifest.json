@@ -1,0 +1,40 @@
+{
+  "name": "casa BEM — Casa Inteligente",
+  "short_name": "casa BEM",
+  "description": "Painel de controle da casa inteligente do Bruno.",
+  "lang": "pt-BR",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f0f4f8",
+  "theme_color": "#1a6bb5",
+  "icons": [
+    {
+      "src": "./logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Abrir o Mapa",
+      "short_name": "Mapa",
+      "description": "Ir direto para a visualização do Mapa",
+      "url": "./index.html?view=mapa"
+    },
+    {
+      "name": "Modo Quiosque",
+      "short_name": "Quiosque",
+      "description": "Modo fullscreen (tablet na parede)",
+      "url": "./index.html?view=mapa&mode=kiosk"
+    }
+  ]
+}
