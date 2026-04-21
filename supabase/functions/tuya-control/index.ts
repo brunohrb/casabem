@@ -177,130 +177,117 @@ serve(async (req) => {
 
     if (action === "list_all_devices") {
       // Discovery flow for the "Sincronizar com SmartLife" modal.
-      //
-      // Tuya Cloud has no global "/v1.0/homes" endpoint — homes are scoped to
-      // a user (uid). So we first discover the uid(s) of every SmartLife
-      // account linked to this Tuya Cloud project via
-      // /v1.0/iot-01/associated-users/devices, then for each uid we walk
-      // homes → rooms+devices to build a flat list.
-      //
-      // Shape: { success, devices: [{ tuya_id, name, home, room, online,
-      //          icon, category, product_id }] }
+      // Strategy: use /v1.3/iot-03/devices to list every device in the
+      // Cloud project in one shot, then enrich with home/room names by
+      // calling /v1.0/users/{uid}/homes + /v1.0/homes/{home_id}/rooms
+      // per unique uid.
+      const VERSION = "2026-04-21-v3";
+      const trace: any = { version: VERSION, steps: [] };
 
-      // Helper — Tuya sometimes returns {result: []}, {result: {devices: []}},
-      // or {result: {list: []}}. Normalise everything to an array.
-      const asArray = (v: unknown): any[] => {
+      const arr = (v: any): any[] => {
         if (Array.isArray(v)) return v;
         if (v && typeof v === "object") {
-          const o = v as Record<string, unknown>;
-          for (const k of ["devices", "list", "homes", "rooms", "data", "records"]) {
-            if (Array.isArray(o[k])) return o[k] as any[];
+          for (const k of ["list", "devices", "homes", "rooms", "data", "records"]) {
+            if (Array.isArray(v[k])) return v[k];
           }
         }
         return [];
       };
 
-      // 1) Collect uids of all linked SmartLife users (paginated).
-      const uidSet = new Set<string>();
-      let lastRowKey = "";
-      let lastAssocResp: any = null;
-      for (let page = 0; page < 10; page++) {
-        const qs = lastRowKey
-          ? `?last_row_key=${encodeURIComponent(lastRowKey)}&size=50`
-          : `?size=50`;
-        const assocResp: any = await tuyaRequest(
-          "GET", `/v1.0/iot-01/associated-users/devices${qs}`, token,
-        );
-        lastAssocResp = assocResp;
-        if (!assocResp?.success) {
-          return new Response(
-            JSON.stringify({
-              error: "Tuya associated-users lookup failed",
-              endpoint: `/v1.0/iot-01/associated-users/devices${qs}`,
-              detail: assocResp,
-            }),
-            { status: 500, headers: corsHeaders },
-          );
+      const safe = async <T,>(label: string, fn: () => Promise<T>): Promise<T | null> => {
+        try {
+          const r = await fn();
+          trace.steps.push({ label, ok: true });
+          return r;
+        } catch (e: any) {
+          trace.steps.push({ label, ok: false, error: String(e?.message || e) });
+          return null;
         }
-        const list = asArray(assocResp.result?.devices ?? assocResp.result);
-        for (const d of list) {
-          if (d?.uid) uidSet.add(d.uid);
-        }
-        if (!assocResp.result?.has_more) break;
-        lastRowKey = assocResp.result?.last_row_key ?? "";
-        if (!lastRowKey) break;
-      }
+      };
 
-      if (uidSet.size === 0) {
-        return new Response(
-          JSON.stringify({
-            success: true,
-            devices: [],
-            warning:
-              "Nenhuma conta SmartLife vinculada ao projeto Tuya Cloud. " +
-              "Vincule em: Tuya IoT Platform → Cloud → (seu projeto) → Devices → Link Tuya App Account.",
-            debug_first_response: lastAssocResp,
-          }),
-          { headers: corsHeaders },
-        );
-      }
-
-      // 2) For each uid, get homes → rooms + devices.
-      const devices: any[] = [];
-      const errors: any[] = [];
-      for (const uid of uidSet) {
-        const homesResp: any = await tuyaRequest(
-          "GET", `/v1.0/users/${uid}/homes`, token,
-        );
-        if (!homesResp?.success) {
-          errors.push({ step: "list_homes", uid, detail: homesResp });
-          continue;
-        }
-        const homes = asArray(homesResp.result);
-
-        for (const home of homes) {
-          if (!home?.home_id) continue;
-          const [roomsResp, devsResp]: any[] = await Promise.all([
-            tuyaRequest("GET", `/v1.0/homes/${home.home_id}/rooms`, token),
-            tuyaRequest("GET", `/v1.0/homes/${home.home_id}/devices`, token),
-          ]);
-
-          const roomMap: Record<string, string> = {};
-          if (roomsResp?.success) {
-            for (const r of asArray(roomsResp.result)) {
-              if (r?.room_id) roomMap[r.room_id] = r.name;
-            }
-          }
-          if (devsResp?.success) {
-            for (const d of asArray(devsResp.result)) {
-              if (!d?.id) continue;
-              devices.push({
-                tuya_id:    d.id,
-                name:       d.name,
-                home:       home.name,
-                home_id:    home.home_id,
-                room:       d.room_id && roomMap[d.room_id] ? roomMap[d.room_id] : home.name,
-                online:     !!d.online,
-                icon:       d.icon,
-                category:   d.category,
-                product_id: d.product_id,
-                biz_type:   d.biz_type,
-              });
-            }
-          } else {
-            errors.push({ step: "list_devices", home_id: home.home_id, detail: devsResp });
-          }
-        }
-      }
-
-      return new Response(
-        JSON.stringify({
-          success: true,
-          devices,
-          ...(errors.length ? { partial_errors: errors } : {}),
-        }),
-        { headers: corsHeaders },
+      // 1) List all project devices in one call.
+      const listResp: any = await safe("iot03-devices", () =>
+        tuyaRequest("GET", "/v1.3/iot-03/devices?page_size=50&page_no=1", token),
       );
+      trace.list_success = listResp?.success;
+      trace.list_has_result = !!listResp?.result;
+
+      if (!listResp?.success) {
+        return new Response(JSON.stringify({
+          version: VERSION,
+          error: "Tuya /v1.3/iot-03/devices failed",
+          detail: listResp,
+          trace,
+        }), { status: 500, headers: corsHeaders });
+      }
+
+      const rawDevices = arr(listResp.result);
+      trace.raw_devices_count = rawDevices.length;
+
+      if (rawDevices.length === 0) {
+        return new Response(JSON.stringify({
+          version: VERSION,
+          success: true,
+          devices: [],
+          warning:
+            "Nenhum dispositivo no projeto Tuya Cloud. Vincule sua conta SmartLife " +
+            "em: Tuya IoT Platform → Cloud → (seu projeto) → Devices → Link Tuya App Account.",
+          trace,
+        }), { headers: corsHeaders });
+      }
+
+      // 2) Enrich with home + room names per unique uid.
+      const uidSet = new Set<string>();
+      for (const d of rawDevices) { if (d?.uid) uidSet.add(String(d.uid)); }
+      trace.unique_uids = uidSet.size;
+
+      const homeByUid: Record<string, { name: string; home_id: any }> = {};
+      const roomNameById: Record<string, string> = {};
+
+      for (const uid of uidSet) {
+        const homesResp: any = await safe(`homes-${uid}`, () =>
+          tuyaRequest("GET", `/v1.0/users/${uid}/homes`, token),
+        );
+        if (!homesResp?.success) continue;
+        const homes = arr(homesResp.result);
+        if (homes.length === 0) continue;
+        const primary = homes[0];
+        homeByUid[uid] = { name: primary.name, home_id: primary.home_id };
+
+        for (const h of homes) {
+          if (!h?.home_id) continue;
+          const roomsResp: any = await safe(`rooms-${h.home_id}`, () =>
+            tuyaRequest("GET", `/v1.0/homes/${h.home_id}/rooms`, token),
+          );
+          if (!roomsResp?.success) continue;
+          for (const r of arr(roomsResp.result)) {
+            if (r?.room_id) roomNameById[String(r.room_id)] = r.name;
+          }
+        }
+      }
+
+      const devices = rawDevices.map((d: any) => {
+        const home = homeByUid[String(d.uid)] ?? { name: "", home_id: null };
+        const roomName = d.room_id ? roomNameById[String(d.room_id)] : undefined;
+        return {
+          tuya_id:    d.id,
+          name:       d.name,
+          home:       home.name || "Casa",
+          home_id:    home.home_id,
+          room:       roomName || home.name || "Casa",
+          online:     !!d.online,
+          icon:       d.icon,
+          category:   d.category,
+          product_id: d.product_id,
+        };
+      });
+
+      return new Response(JSON.stringify({
+        version: VERSION,
+        success: true,
+        devices,
+        trace,
+      }), { headers: corsHeaders });
     }
 
     throw new Error("Unknown action: " + action);
