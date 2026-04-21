@@ -77,6 +77,23 @@ Esse script:
 
 ## 2. Deploy das Edge Functions
 
+> 💡 **Modo fácil (recomendado):** a gente tem um GitHub Actions em
+> `.github/workflows/deploy-edge-functions.yml` que sobe as 3 functions
+> sozinho quando algo em `supabase/functions/**` muda na main — ou
+> manualmente via botão "Run workflow" na aba Actions.
+>
+> Pra isso funcionar, **1 vez apenas**, adicione em
+> GitHub → Settings → Secrets and variables → Actions → New secret:
+>
+> - `SUPABASE_ACCESS_TOKEN` → gere em
+>   https://supabase.com/dashboard/account/tokens (botão "Generate new token").
+>
+> Depois, basta dar push em `supabase/functions/` ou clicar
+> "Run workflow" que tudo sobe automaticamente.
+
+Se preferir o modo manual pelo terminal:
+
+
 ### 2.1 · `tuya-control` (já existe, mas garanta a versão canônica)
 
 Código em `supabase/functions/tuya-control/index.ts` (cópia do que já
