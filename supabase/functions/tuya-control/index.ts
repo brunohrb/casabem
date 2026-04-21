@@ -134,9 +134,9 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { action, device_id, value, switch_code } = body;
+    const { action, device_id, value, switch_code, ir_parent_id } = body;
 
-    // action: "control" | "status" | "list_devices"
+    // action: "control" | "status" | "list_devices" | "ir_send"
     const token = await getTuyaToken();
 
     if (action === "list_devices") {
@@ -155,6 +155,39 @@ serve(async (req) => {
 
     if (action === "control") {
       if (!device_id) throw new Error("device_id required");
+
+      // ── Dispositivo controlado por hub IR (ar, TV, etc.) ──────────
+      // Quando o frontend passa `ir_parent_id`, tem que ir pelo
+      // endpoint /v2.0/infrareds/... do hub (o device_id aqui é o
+      // id do "controle remoto" pareado). Diferencia AC de
+      // genérico (TV) pelo campo opcional body.device_type.
+      if (ir_parent_id) {
+        const deviceType = body.device_type || "tv";    // "ac" | "tv" | "other"
+        const on = value === true || value === 1 || value === "1";
+
+        let path: string;
+        let reqBody: object | undefined;
+
+        if (deviceType === "ac") {
+          // AC: /air-conditioners/{remote_id}/command com {code, value}
+          // code: "power" (0/1), "M" (mode), "T" (temp), "F" (fan)
+          const acCode  = body.ir_code  ?? "power";
+          const acValue = body.ir_value ?? (on ? 1 : 0);
+          path = `/v2.0/infrareds/${ir_parent_id}/air-conditioners/${device_id}/command`;
+          reqBody = { code: acCode, value: acValue };
+        } else {
+          // Genérico (TV, ventilador, som etc.): remotes/{remote_id}/keys/{key_id}
+          // A chave padrão pra power é "Power" na biblioteca Tuya.
+          const keyId = body.ir_key ?? "Power";
+          path = `/v2.0/infrareds/${ir_parent_id}/remotes/${device_id}/keys/${encodeURIComponent(keyId)}`;
+          reqBody = undefined;   // endpoint não recebe body
+        }
+
+        const result = await tuyaRequest("POST", path, token, reqBody);
+        return new Response(JSON.stringify(result), { headers: corsHeaders });
+      }
+
+      // ── Dispositivo direto (relé, tomada, lâmpada Wi-Fi) ──────────
       // value:
       //   - boolean         → usa `switch_code` do body (default 'switch_1')
       //   - { code, value } → comando custom (permite brightness, mode, etc.)
@@ -170,6 +203,29 @@ serve(async (req) => {
         token,
         { commands }
       );
+      return new Response(JSON.stringify(result), { headers: corsHeaders });
+    }
+
+    if (action === "ir_send") {
+      // Envio IR custom: usado por futuras funções (aprender/tocar chave
+      // específica, mudar temperatura, etc). Body esperado:
+      //   { ir_parent_id, device_id, device_type: 'ac'|'tv',
+      //     ir_code?: string, ir_value?: any, ir_key?: string }
+      if (!ir_parent_id || !device_id) {
+        throw new Error("ir_parent_id + device_id required");
+      }
+      const deviceType = body.device_type || "tv";
+      let path: string;
+      let reqBody: object | undefined;
+      if (deviceType === "ac") {
+        path = `/v2.0/infrareds/${ir_parent_id}/air-conditioners/${device_id}/command`;
+        reqBody = { code: body.ir_code ?? "power", value: body.ir_value ?? 1 };
+      } else {
+        const keyId = body.ir_key ?? "Power";
+        path = `/v2.0/infrareds/${ir_parent_id}/remotes/${device_id}/keys/${encodeURIComponent(keyId)}`;
+        reqBody = undefined;
+      }
+      const result = await tuyaRequest("POST", path, token, reqBody);
       return new Response(JSON.stringify(result), { headers: corsHeaders });
     }
 
@@ -294,7 +350,72 @@ serve(async (req) => {
         devices[i].channels = channels;
       }
 
-      return new Response(JSON.stringify({ success: true, devices }), { headers: corsHeaders });
+      // 4) Descoberta IR: identifica hubs (category wnykq / ykq) e
+      //    busca a lista de remotes pareados. Marca cada aparelho
+      //    filho com { ir_parent_id, ir_device_type } para o front
+      //    cadastrar direto certo.
+      const IR_HUB_CATEGORIES = new Set(["wnykq", "ykq", "infrared_remote"]);
+      const hubs = devices.filter(d => IR_HUB_CATEGORIES.has(d.category));
+      const remoteToHub = new Map<string, string>();      // remote_id → hub_id
+      const remoteTypes = new Map<string, string>();      // remote_id → 'ac'|'tv'|'fan'|...
+      const remoteNames = new Map<string, string>();      // remote_id → nome bonito do remote
+
+      for (const hub of hubs) {
+        try {
+          const resp: any = await tuyaRequest(
+            "GET",
+            `/v2.0/infrareds/${hub.tuya_id}/remotes`,
+            token,
+          );
+          const remotes = resp?.result ?? [];
+          for (const rr of remotes) {
+            // API às vezes devolve remote_id, às vezes device_id.
+            const rid = rr.remote_id || rr.device_id || rr.id;
+            if (!rid) continue;
+            remoteToHub.set(rid, hub.tuya_id);
+            remoteNames.set(rid, rr.remote_name || rr.name || "");
+
+            // Tipo do aparelho. Tuya categoriza (1 = TV, 2 = STB,
+            // 3 = Som, 4 = Fan, 5 = AC, 6 = Box, 7 = Aircleaner,
+            // 8 = Projector, 9 = DVD, 10 = AmpLifier, 11 = Camera,
+            // 12 = Light, 13 = Others).
+            const cat = String(rr.category_id ?? rr.category ?? "").toLowerCase();
+            if (cat === "5" || cat.includes("ac") || cat.includes("air")) {
+              remoteTypes.set(rid, "ac");
+            } else if (cat === "1" || cat.includes("tv")) {
+              remoteTypes.set(rid, "tv");
+            } else if (cat === "4" || cat.includes("fan")) {
+              remoteTypes.set(rid, "fan");
+            } else {
+              remoteTypes.set(rid, "other");
+            }
+          }
+        } catch (e) {
+          // Hub sem permissão ou API fora — segue.
+          console.warn("IR hub remotes fetch error", hub.tuya_id, e);
+        }
+      }
+
+      for (const d of devices) {
+        // Se esse tuya_id é um remote pareado, anota o hub pai.
+        if (remoteToHub.has(d.tuya_id)) {
+          d.ir_parent_id = remoteToHub.get(d.tuya_id);
+          d.ir_device_type = remoteTypes.get(d.tuya_id) ?? "other";
+        }
+        // Categoria por sub-device (quando Tuya devolve separado)
+        const cat = String(d.category ?? "").toLowerCase();
+        if (!d.ir_device_type) {
+          if (cat === "infrared_ac")   d.ir_device_type = "ac";
+          else if (cat === "infrared_tv") d.ir_device_type = "tv";
+          else if (cat === "infrared_fan") d.ir_device_type = "fan";
+        }
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        devices,
+        ir_hubs: hubs.map(h => ({ tuya_id: h.tuya_id, name: h.name })),
+      }), { headers: corsHeaders });
     }
 
     throw new Error("Unknown action: " + action);
