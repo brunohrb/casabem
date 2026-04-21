@@ -313,6 +313,33 @@
       font-weight: 600;
     }
 
+    .room-reorder {
+      margin-left: auto;
+      display: flex;
+      gap: 4px;
+    }
+    .room-arrow {
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg3);
+      color: var(--text2);
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .room-arrow:hover:not(:disabled) {
+      color: var(--accent);
+      border-color: var(--accent);
+      background: #f0f7ff;
+    }
+    .room-arrow:disabled { opacity: 0.35; cursor: not-allowed; }
+
     .devices-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
@@ -599,15 +626,203 @@
     }
 
     /* Painel de estatísticas de uso */
-    .usage-panel { padding: 10px; }
+    .usage-panel {
+      padding: 4px 2px;
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+    .usage-section {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      margin-bottom: 10px;
+    }
+    .usage-section:last-child { margin-bottom: 0; }
+    .usage-section-head {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .usage-section-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--accent2);
+    }
+    .usage-section-sub {
+      font-size: 11px;
+      color: var(--text2);
+      margin-left: auto;
+      font-variant-numeric: tabular-nums;
+    }
     .usage-row {
-      display: flex; justify-content: space-between;
-      padding: 6px 0; border-bottom: 1px dashed var(--border);
-      font-size: 12px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 0;
+      border-bottom: 1px dashed var(--border);
+      font-size: 12.5px;
     }
     .usage-row:last-child { border-bottom: none; }
-    .usage-row .u-name { color: var(--text); font-weight: 600; }
-    .usage-row .u-time { color: var(--text2); font-variant-numeric: tabular-nums; }
+    .usage-row .u-name { color: var(--text); font-weight: 600; line-height: 1.3; }
+    .usage-row .u-name small { color: var(--text2); font-weight: 400; }
+    .usage-row .u-time {
+      color: var(--text2);
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      font-size: 11.5px;
+    }
+    .usage-row .u-time .live {
+      color: var(--green);
+      font-weight: 700;
+      display: inline-block;
+    }
+    .usage-row .u-time .total { display: block; }
+    .usage-totals {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .usage-total-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      text-align: center;
+    }
+    .usage-total-card .val {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .usage-total-card.on .val { color: var(--green); }
+    .usage-total-card .lbl {
+      font-size: 10.5px;
+      color: var(--text2);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 2px;
+    }
+    .usage-hint {
+      font-size: 11px;
+      color: var(--text2);
+      background: #eff6ff;
+      border: 1px solid #dbeafe;
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      margin-bottom: 10px;
+      line-height: 1.45;
+    }
+
+    /* ============================================================
+       CENAS / ATALHOS DINÂMICOS
+    ============================================================ */
+    .scenes-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .scene-card {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      padding: 12px 8px;
+      background: var(--bg3);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text2);
+      transition: all 0.2s;
+      text-align: center;
+    }
+    .scene-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(26,107,181,0.15);
+    }
+    .scene-card .sc-icon { font-size: 22px; line-height: 1; }
+    .scene-card .sc-name {
+      color: var(--text);
+      font-weight: 700;
+      font-size: 11.5px;
+      line-height: 1.2;
+    }
+    .scene-card .sc-count { font-size: 10px; color: var(--text2); }
+    .scene-card .sc-edit {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      background: transparent;
+      border: 0;
+      font-size: 11px;
+      color: var(--text2);
+      opacity: 0;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .scene-card:hover .sc-edit { opacity: 0.8; }
+    .scene-card .sc-edit:hover { opacity: 1; background: rgba(0,0,0,0.06); }
+    .scene-card.add {
+      border-style: dashed;
+      background: #fff;
+    }
+    .scene-card.add:hover { border-color: var(--accent); color: var(--accent); background: #f0f7ff; }
+
+    /* Editor de ações da cena */
+    .scene-actions-list {
+      max-height: 280px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--bg3);
+      padding: 6px;
+    }
+    .scene-action-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      border-radius: 6px;
+      background: #fff;
+      border: 1px solid var(--border);
+      margin-bottom: 4px;
+      font-size: 12px;
+    }
+    .scene-action-row:last-child { margin-bottom: 0; }
+    .scene-action-row input[type="checkbox"] { margin-right: 4px; }
+    .scene-action-row select {
+      font-size: 11px;
+      padding: 3px 6px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      background: var(--bg3);
+    }
+    .scene-emoji-row {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 6px;
+    }
+    .scene-emoji-btn {
+      font-size: 18px;
+      padding: 6px 0;
+      border: 1.5px solid var(--border);
+      background: #fff;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .scene-emoji-btn.sel { border-color: var(--accent); background: #f0f7ff; }
 
     /* ============================================================
        ADD DEVICE CARD
@@ -1344,8 +1559,17 @@
         <button class="quick-btn danger" onclick="desligarTudo()">
           <span class="qb-icon">🌙</span> Desligar Tudo
         </button>
-        <button class="quick-btn" onclick="ligarPorTipo('light')">
-          <span class="qb-icon">🔦</span> Só Luzes
+        <button class="quick-btn success" onclick="ligarPorTipo('light')">
+          <span class="qb-icon">🔦</span> Ligar Luzes
+        </button>
+        <button class="quick-btn danger" onclick="desligarPorTipo('light')">
+          <span class="qb-icon">💤</span> Desligar Luzes
+        </button>
+        <button class="quick-btn success" onclick="ligarPorTipo('ac')">
+          <span class="qb-icon">❄️</span> Ligar Ar
+        </button>
+        <button class="quick-btn danger" onclick="desligarPorTipo('ac')">
+          <span class="qb-icon">🥵</span> Desligar Ar
         </button>
         <button class="quick-btn" onclick="openModal()">
           <span class="qb-icon">➕</span> Novo Dispositivo
@@ -1356,6 +1580,16 @@
         <button class="quick-btn" onclick="openTuyaSyncModal()">
           <span class="qb-icon">🔄</span> Sincronizar SmartLife
         </button>
+      </div>
+    </div>
+
+    <!-- Cenas / Atalhos dinâmicos -->
+    <div class="sidebar-section">
+      <h3>🎬 Cenas / Atalhos</h3>
+      <div class="scenes-list" id="scenesList">
+        <div class="empty-state" style="padding:16px;grid-column:1/-1">
+          <div>⏳</div><div>Carregando...</div>
+        </div>
       </div>
     </div>
 
@@ -1529,11 +1763,12 @@
      MODAL - Consumo / Tempo Ligado
 ============================================================ -->
 <div class="modal-overlay" id="usageModalOverlay" onclick="if(event.target===this)closeUsageModal()">
-  <div class="modal" style="max-width:520px">
+  <div class="modal" style="max-width:640px">
     <h2>⚡ Consumo &amp; Tempo Ligado</h2>
-    <p style="font-size:12px;color:var(--text2);margin-bottom:14px">
-      Tempo total ligado por aparelho (acumulado desde o cadastro).
-      Inclui acionamentos manuais, pelo app e pela Alexa.
+    <p class="usage-hint">
+      💡 O tempo conta também quando você liga pelo interruptor de parede —
+      a casa detecta a mudança física em até 20s via Tuya Cloud e começa a
+      acumular na sessão.
     </p>
     <div class="usage-panel" id="usagePanel">
       <div class="empty-state" style="padding:16px">Carregando…</div>
@@ -1569,7 +1804,7 @@
 </div>
 
 <!-- ============================================================
-     MODAL - Editar Dispositivo (nome / cômodo / tuya_id)
+     MODAL - Editar Dispositivo (nome / cômodo / tuya_id / canal)
 ============================================================ -->
 <div class="modal-overlay" id="editDeviceModalOverlay" onclick="if(event.target===this)closeEditDeviceModal()">
   <div class="modal">
@@ -1586,12 +1821,64 @@
       <label>Tuya Device ID <small style="color:var(--text2)">(opcional)</small></label>
       <input type="text" id="editDeviceTuyaId" placeholder="bf... (aparece no SmartLife)" />
     </div>
+    <div class="form-row">
+      <label>Canal Tuya <small style="color:var(--text2)">(p/ interruptor multi-tecla)</small></label>
+      <select id="editDeviceTuyaSwitchCode">
+        <option value="switch_1">switch_1 (tecla 1 / padrão)</option>
+        <option value="switch_2">switch_2 (tecla 2)</option>
+        <option value="switch_3">switch_3 (tecla 3)</option>
+        <option value="switch_4">switch_4 (tecla 4)</option>
+        <option value="switch_5">switch_5 (tecla 5)</option>
+        <option value="switch_6">switch_6 (tecla 6)</option>
+        <option value="switch_7">switch_7 (tecla 7)</option>
+        <option value="switch_8">switch_8 (tecla 8)</option>
+        <option value="switch_led">switch_led (lâmpada c/ dimmer)</option>
+      </select>
+    </div>
     <div class="modal-actions" style="justify-content:space-between">
       <button class="btn btn-ghost" style="color:var(--red)"
               onclick="deleteEditingDevice()">🗑️ Apagar</button>
       <div style="display:flex;gap:8px">
         <button class="btn btn-ghost" onclick="closeEditDeviceModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="saveEditingDevice()">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     MODAL - Criar / Editar Cena
+============================================================ -->
+<div class="modal-overlay" id="sceneModalOverlay" onclick="if(event.target===this)closeSceneModal()">
+  <div class="modal" style="max-width:520px">
+    <h2 id="sceneModalTitle">🎬 Nova Cena</h2>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:14px">
+      Monte um atalho que executa várias ações de uma vez.
+      Ex.: <em>Modo Cinema</em> liga o ar e a luz do painel.
+    </p>
+
+    <div class="form-row">
+      <label>Nome</label>
+      <input type="text" id="sceneName" placeholder="Ex: Modo Cinema" />
+    </div>
+
+    <div class="form-row">
+      <label>Ícone</label>
+      <div class="scene-emoji-row" id="sceneEmojiRow"></div>
+    </div>
+
+    <div class="form-row">
+      <label>Ações <small style="color:var(--text2)">(marque os dispositivos e escolha Ligar / Desligar)</small></label>
+      <div class="scene-actions-list" id="sceneActionsList"></div>
+    </div>
+
+    <div class="modal-actions" style="justify-content:space-between">
+      <button class="btn btn-ghost" id="sceneDeleteBtn"
+              style="color:var(--red);display:none"
+              onclick="deleteEditingScene()">🗑️ Apagar</button>
+      <div style="display:flex;gap:8px;margin-left:auto">
+        <button class="btn btn-ghost" onclick="closeSceneModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="saveScene()">Salvar</button>
       </div>
     </div>
   </div>
@@ -1656,6 +1943,8 @@ const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 // Estado local
 let allDevices  = [];
 let allReminders = [];
+let allScenes    = [];   // [{id, name, icon, color, position, actions:[{device_id, action, order_idx}]}]
+let roomOrder    = {};   // { "Sala": 0, "Quarto": 1, ... }
 
 // ============================================================
 // INICIALIZAÇÃO
@@ -1668,10 +1957,37 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function loadAll() {
-  await Promise.all([loadDevices(), loadReminders(), loadLog(), loadPendingTimers()]);
+  await Promise.all([
+    loadDevices(),
+    loadReminders(),
+    loadLog(),
+    loadPendingTimers(),
+    loadRoomOrder(),
+    loadScenes(),
+  ]);
   updateStats();
   renderDevices();
   renderRules();
+  renderScenesPanel();
+}
+
+async function loadRoomOrder() {
+  const { data, error } = await db.from('room_order').select('*');
+  if (error) { console.warn('room_order load error:', error); return; }
+  roomOrder = {};
+  for (const r of (data || [])) roomOrder[r.name] = r.position;
+}
+
+async function loadScenes() {
+  const [{ data: scenes, error: e1 }, { data: actions, error: e2 }] = await Promise.all([
+    db.from('scenes').select('*').order('position').order('created_at'),
+    db.from('scene_actions').select('*').order('order_idx'),
+  ]);
+  if (e1) { console.warn('scenes load error:', e1); return; }
+  if (e2) { console.warn('scene_actions load error:', e2); return; }
+  const byScene = {};
+  for (const a of (actions || [])) (byScene[a.scene_id] ||= []).push(a);
+  allScenes = (scenes || []).map(s => ({ ...s, actions: byScene[s.id] || [] }));
 }
 
 // ============================================================
@@ -1711,21 +2027,79 @@ function renderDevices() {
     'Área Externa':'🏊', 'Geral':'🔌'
   };
 
-  container.innerHTML = Object.entries(rooms).map(([room, devices]) => `
-    <div class="room-group">
-      <div class="room-title">
-        ${roomIcons[room] || '🏠'} ${room}
-        <span class="room-count">${devices.length}</span>
-      </div>
-      <div class="devices-grid">
-        ${devices.map(d => deviceCardHTML(d)).join('')}
-        <div class="add-card" onclick="openModal('${room}')">
-          <span class="add-icon">➕</span>
-          <span>Adicionar</span>
+  // Ordena pela posição salva em room_order; fallback alfabético p/ cômodos novos.
+  const orderedRooms = Object.keys(rooms).sort((a, b) => {
+    const hasA = Object.prototype.hasOwnProperty.call(roomOrder, a);
+    const hasB = Object.prototype.hasOwnProperty.call(roomOrder, b);
+    if (hasA && hasB) return roomOrder[a] - roomOrder[b];
+    if (hasA) return -1;
+    if (hasB) return 1;
+    return a.localeCompare(b, 'pt-BR');
+  });
+
+  container.innerHTML = orderedRooms.map((room, idx) => {
+    const devices = rooms[room];
+    const roomEnc = encodeURIComponent(room);
+    const isFirst = idx === 0;
+    const isLast  = idx === orderedRooms.length - 1;
+    return `
+      <div class="room-group" data-room="${escapeHtml(room)}">
+        <div class="room-title">
+          ${roomIcons[room] || '🏠'} ${escapeHtml(room)}
+          <span class="room-count">${devices.length}</span>
+          <span class="room-reorder">
+            <button class="room-arrow" title="Subir" ${isFirst ? 'disabled' : ''}
+              onclick="moveRoom('${roomEnc}', -1)">↑</button>
+            <button class="room-arrow" title="Descer" ${isLast ? 'disabled' : ''}
+              onclick="moveRoom('${roomEnc}', 1)">↓</button>
+          </span>
+        </div>
+        <div class="devices-grid">
+          ${devices.map(d => deviceCardHTML(d)).join('')}
+          <div class="add-card" onclick="openModal('${roomEnc}')">
+            <span class="add-icon">➕</span>
+            <span>Adicionar</span>
+          </div>
         </div>
       </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
+}
+
+// ============================================================
+// ORDEM DOS CÔMODOS (persistido em room_order)
+// ============================================================
+async function moveRoom(encodedRoom, delta) {
+  const room = decodeURIComponent(encodedRoom);
+
+  // Constrói a ordem atual (mesma lógica do renderDevices).
+  const distinct = [...new Set(allDevices.map(d => d.room))];
+  distinct.sort((a, b) => {
+    const hasA = Object.prototype.hasOwnProperty.call(roomOrder, a);
+    const hasB = Object.prototype.hasOwnProperty.call(roomOrder, b);
+    if (hasA && hasB) return roomOrder[a] - roomOrder[b];
+    if (hasA) return -1;
+    if (hasB) return 1;
+    return a.localeCompare(b, 'pt-BR');
+  });
+
+  const i = distinct.indexOf(room);
+  if (i < 0) return;
+  const j = i + delta;
+  if (j < 0 || j >= distinct.length) return;
+
+  [distinct[i], distinct[j]] = [distinct[j], distinct[i]];
+
+  // Atualiza o mapa local + persiste todos os cômodos (upsert).
+  const rows = distinct.map((name, position) => ({ name, position }));
+  for (const r of rows) roomOrder[r.name] = r.position;
+  renderDevices();
+
+  const { error } = await db.from('room_order').upsert(rows, { onConflict: 'name' });
+  if (error) {
+    showToast('Erro ao salvar ordem: ' + error.message, 'error');
+    console.warn('room_order upsert error:', error);
+  }
 }
 
 function deviceCardHTML(d) {
@@ -2004,11 +2378,33 @@ async function desligarTudo() {
   showToast('Casa no modo economia 🌙', 'info');
 }
 
+const TIPO_LABELS = {
+  light:  { plural: 'luzes',              on: '💡 Luzes ligadas',           off: '🌑 Luzes desligadas' },
+  ac:     { plural: 'ares-condicionados', on: '❄️ Ares-condicionados ligados', off: '🌡️ Ares-condicionados desligados' },
+  tv:     { plural: 'TVs',                on: '📺 TVs ligadas',             off: '📺 TVs desligadas' },
+  vacuum: { plural: 'aspiradores',        on: '🤖 Aspiradores iniciados',    off: '🤖 Aspiradores parados' },
+};
+
 async function ligarPorTipo(tipo) {
-  for (const d of allDevices.filter(d => d.type === tipo)) {
-    if (!d.status) await updateDevice(d.id, { status: true });
+  const alvo = allDevices.filter(d => d.type === tipo);
+  if (alvo.length === 0) { showToast(`Nenhum ${TIPO_LABELS[tipo]?.plural || tipo} cadastrado`, 'info'); return; }
+  let count = 0;
+  for (const d of alvo) {
+    if (!d.status) { await updateDevice(d.id, { status: true }, { silent: true }); count++; }
   }
-  showToast(`Todas as luzes ligadas! 💡`, 'success');
+  const lbl = TIPO_LABELS[tipo]?.on || `${tipo} ligados`;
+  showToast(count ? `${lbl} (${count})` : 'Já estavam ligados', count ? 'success' : 'info');
+}
+
+async function desligarPorTipo(tipo) {
+  const alvo = allDevices.filter(d => d.type === tipo);
+  if (alvo.length === 0) { showToast(`Nenhum ${TIPO_LABELS[tipo]?.plural || tipo} cadastrado`, 'info'); return; }
+  let count = 0;
+  for (const d of alvo) {
+    if (d.status) { await updateDevice(d.id, { status: false }, { silent: true }); count++; }
+  }
+  const lbl = TIPO_LABELS[tipo]?.off || `${tipo} desligados`;
+  showToast(count ? `${lbl} (${count})` : 'Já estavam desligados', count ? 'info' : 'info');
 }
 
 // ============================================================
@@ -2702,29 +3098,301 @@ function closeUsageModal() {
 
 function renderUsagePanel() {
   const el = document.getElementById('usagePanel');
-  // Ordena: ligados (com tempo vivo) primeiro, depois por acumulado desc
-  const list = [...allDevices].map(d => {
-    const liveSec = (d.status && d.on_since)
-      ? Math.floor((Date.now() - new Date(d.on_since).getTime()) / 1000)
-      : 0;
-    const total   = (d.total_on_time_seconds || 0) + liveSec;
-    return { d, liveSec, total };
-  }).sort((a, b) => (b.d.status - a.d.status) || (b.total - a.total));
-
-  if (list.length === 0) {
+  if (allDevices.length === 0) {
     el.innerHTML = `<div class="empty-state" style="padding:16px">Sem dispositivos.</div>`;
     return;
   }
 
-  el.innerHTML = list.map(({d, liveSec, total}) => {
-    const live = d.status && liveSec > 0
-      ? `<span style="color:var(--green);font-weight:700">● ligado há ${formatElapsed(liveSec)}</span>` : '';
+  // Calcula live + total para cada dispositivo
+  const enriched = allDevices.map(d => {
+    const liveSec = (d.status && d.on_since)
+      ? Math.floor((Date.now() - new Date(d.on_since).getTime()) / 1000)
+      : 0;
+    const total = (d.total_on_time_seconds || 0) + liveSec;
+    return { d, liveSec, total };
+  });
+
+  // Totais globais (cards do topo)
+  const onCount   = enriched.filter(x => x.d.status).length;
+  const liveTotal = enriched.reduce((s, x) => s + x.liveSec, 0);
+  const grandSum  = enriched.reduce((s, x) => s + x.total, 0);
+
+  // Agrupa por cômodo
+  const rooms = {};
+  for (const item of enriched) {
+    (rooms[item.d.room] ||= []).push(item);
+  }
+
+  // Ordena os cômodos pela posição salva em room_order, fallback alfabético
+  const roomIcons = {
+    'Sala':'🛋️', 'Quarto':'🛏️', 'Quarto Casal':'🛏️', 'Quarto Clarinha':'🛏️',
+    'Cozinha':'🍳', 'Banheiro':'🚿', 'Lavabo':'🪥', 'Hall':'🚪',
+    'Varanda':'🌿', 'Escritório':'💼', 'Garagem':'🚗',
+    'Área Externa':'🏊', 'Geral':'🔌'
+  };
+  const orderedRooms = Object.keys(rooms).sort((a, b) => {
+    const hasA = Object.prototype.hasOwnProperty.call(roomOrder, a);
+    const hasB = Object.prototype.hasOwnProperty.call(roomOrder, b);
+    if (hasA && hasB) return roomOrder[a] - roomOrder[b];
+    if (hasA) return -1;
+    if (hasB) return 1;
+    return a.localeCompare(b, 'pt-BR');
+  });
+
+  const totalsHtml = `
+    <div class="usage-totals">
+      <div class="usage-total-card on">
+        <div class="val">${onCount}</div>
+        <div class="lbl">Ligados agora</div>
+      </div>
+      <div class="usage-total-card">
+        <div class="val">${formatElapsed(grandSum)}</div>
+        <div class="lbl">Tempo total acumulado</div>
+      </div>
+    </div>`;
+
+  const sectionsHtml = orderedRooms.map(room => {
+    // Dentro do cômodo: ligados primeiro, depois por tempo acumulado desc
+    const items = rooms[room].sort((a, b) =>
+      (b.d.status - a.d.status) || (b.total - a.total)
+    );
+    const roomOn  = items.filter(x => x.d.status).length;
+    const roomSum = items.reduce((s, x) => s + x.total, 0);
+
+    const rowsHtml = items.map(({ d, liveSec, total }) => {
+      const live = d.status && liveSec > 0
+        ? `<span class="live">● ligado há ${formatElapsed(liveSec)}</span><br>` : '';
+      return `
+        <div class="usage-row">
+          <span class="u-name">
+            ${typeIcon(d.type)} ${escapeHtml(d.name)}
+            ${d.type === 'ac' && d.status ? `<small>· ${d.temperature || 22}°C</small>` : ''}
+          </span>
+          <span class="u-time">
+            ${live}
+            <span class="total">Σ ${formatElapsed(total)}</span>
+          </span>
+        </div>`;
+    }).join('');
+
     return `
-      <div class="usage-row">
-        <span class="u-name">${escapeHtml(d.name)} <small style="color:var(--text2)">· ${escapeHtml(d.room)}</small></span>
-        <span class="u-time">${live} ${live ? '·' : ''} Σ ${formatElapsed(total)}</span>
+      <div class="usage-section">
+        <div class="usage-section-head">
+          <span class="usage-section-title">${roomIcons[room] || '🏠'} ${escapeHtml(room)}</span>
+          <span class="usage-section-sub">
+            ${roomOn}/${items.length} ligado${items.length !== 1 ? 's' : ''}
+            · Σ ${formatElapsed(roomSum)}
+          </span>
+        </div>
+        ${rowsHtml}
       </div>`;
   }).join('');
+
+  el.innerHTML = totalsHtml + sectionsHtml;
+}
+
+function typeIcon(t) {
+  return { light:'💡', ac:'❄️', tv:'📺', vacuum:'🤖', other:'🔌' }[t] || '🔌';
+}
+
+// ============================================================
+// CENAS / ATALHOS DINÂMICOS
+// ------------------------------------------------------------
+// Cada cena guarda uma lista de ações (ligar ou desligar um
+// dispositivo específico). Executar a cena = rodar updateDevice
+// em sequência para cada ação.
+// ============================================================
+const SCENE_EMOJIS = ['🎬','🛋️','🛏️','❄️','☀️','🌙','🍿','🧑‍🍳','🎉','🧘','💼','🌿','⭐','🚿','🎵','🎮'];
+let editingSceneId = null;        // id da cena em edição (null = criando)
+
+function renderScenesPanel() {
+  const el = document.getElementById('scenesList');
+  if (!el) return;
+
+  const cards = allScenes.map(s => `
+    <button class="scene-card" onclick="runScene('${s.id}')" title="${escapeHtml(s.name)}">
+      <button class="sc-edit" title="Editar"
+        onclick="event.stopPropagation();openSceneModal('${s.id}')">✏️</button>
+      <span class="sc-icon">${escapeHtml(s.icon || '⭐')}</span>
+      <span class="sc-name">${escapeHtml(s.name)}</span>
+      <span class="sc-count">${(s.actions || []).length} ${((s.actions || []).length === 1 ? 'ação' : 'ações')}</span>
+    </button>
+  `).join('');
+
+  el.innerHTML = cards + `
+    <button class="scene-card add" onclick="openSceneModal()" title="Nova cena">
+      <span class="sc-icon">➕</span>
+      <span class="sc-name">Nova Cena</span>
+    </button>`;
+}
+
+function openSceneModal(id = null) {
+  editingSceneId = id;
+  const scene = id ? allScenes.find(s => s.id === id) : null;
+
+  document.getElementById('sceneModalTitle').textContent = scene
+    ? '✏️ Editar Cena'
+    : '🎬 Nova Cena';
+  document.getElementById('sceneName').value = scene?.name || '';
+
+  // Renderiza picker de emoji
+  const emojiSel = scene?.icon || '🎬';
+  document.getElementById('sceneEmojiRow').innerHTML = SCENE_EMOJIS.map(e => `
+    <button type="button" class="scene-emoji-btn ${e === emojiSel ? 'sel' : ''}"
+      data-emoji="${e}" onclick="pickSceneEmoji(this)">${e}</button>
+  `).join('');
+
+  // Renderiza lista de dispositivos com checkbox + select on/off
+  const existing = new Map();
+  for (const a of (scene?.actions || [])) existing.set(a.device_id, a.action);
+
+  // Agrupa por cômodo (ordem atual do renderDevices)
+  const rooms = {};
+  for (const d of allDevices) (rooms[d.room] ||= []).push(d);
+  const orderedRooms = Object.keys(rooms).sort((a, b) => {
+    const hasA = Object.prototype.hasOwnProperty.call(roomOrder, a);
+    const hasB = Object.prototype.hasOwnProperty.call(roomOrder, b);
+    if (hasA && hasB) return roomOrder[a] - roomOrder[b];
+    if (hasA) return -1;
+    if (hasB) return 1;
+    return a.localeCompare(b, 'pt-BR');
+  });
+
+  const listEl = document.getElementById('sceneActionsList');
+  if (allDevices.length === 0) {
+    listEl.innerHTML = `<div class="empty-state" style="padding:12px">
+      Cadastre dispositivos primeiro para criar cenas.</div>`;
+  } else {
+    listEl.innerHTML = orderedRooms.map(room => `
+      <div style="font-size:11px;color:var(--text2);font-weight:700;text-transform:uppercase;
+                  padding:6px 8px 2px">${escapeHtml(room)}</div>
+      ${rooms[room].map(d => {
+        const checked = existing.has(d.id);
+        const act     = existing.get(d.id) || 'on';
+        return `
+          <label class="scene-action-row">
+            <span>
+              <input type="checkbox" class="sc-dev-check" data-device-id="${d.id}" ${checked ? 'checked' : ''}>
+              ${typeIcon(d.type)} ${escapeHtml(d.name)}
+            </span>
+            <select class="sc-dev-action" data-device-id="${d.id}">
+              <option value="on"  ${act === 'on'  ? 'selected' : ''}>Ligar</option>
+              <option value="off" ${act === 'off' ? 'selected' : ''}>Desligar</option>
+            </select>
+          </label>`;
+      }).join('')}
+    `).join('');
+  }
+
+  // Mostra botão apagar só em edição
+  const delBtn = document.getElementById('sceneDeleteBtn');
+  delBtn.style.display = scene ? 'inline-flex' : 'none';
+
+  document.getElementById('sceneModalOverlay').classList.add('open');
+  setTimeout(() => document.getElementById('sceneName').focus(), 100);
+}
+
+function closeSceneModal() {
+  document.getElementById('sceneModalOverlay').classList.remove('open');
+  editingSceneId = null;
+}
+
+function pickSceneEmoji(btn) {
+  document.querySelectorAll('#sceneEmojiRow .scene-emoji-btn')
+    .forEach(b => b.classList.remove('sel'));
+  btn.classList.add('sel');
+}
+
+async function saveScene() {
+  const name = document.getElementById('sceneName').value.trim();
+  if (!name) { showToast('Dê um nome para a cena', 'error'); return; }
+
+  const iconBtn = document.querySelector('#sceneEmojiRow .scene-emoji-btn.sel');
+  const icon = iconBtn ? iconBtn.dataset.emoji : '🎬';
+
+  // Coleta ações
+  const checks = Array.from(document.querySelectorAll('.sc-dev-check:checked'));
+  if (checks.length === 0) {
+    showToast('Marque pelo menos um dispositivo', 'error');
+    return;
+  }
+  const actions = checks.map((chk, idx) => {
+    const devId = chk.dataset.deviceId;
+    const sel = document.querySelector(`.sc-dev-action[data-device-id="${devId}"]`);
+    return { device_id: devId, action: sel.value, order_idx: idx };
+  });
+
+  let sceneId = editingSceneId;
+  if (sceneId) {
+    // Update
+    const { error } = await db.from('scenes')
+      .update({ name, icon }).eq('id', sceneId);
+    if (error) { showToast('Erro ao salvar: ' + error.message, 'error'); return; }
+    // Substitui ações (delete + insert)
+    await db.from('scene_actions').delete().eq('scene_id', sceneId);
+  } else {
+    // Insert
+    const maxPos = allScenes.reduce((m, s) => Math.max(m, s.position || 0), 0);
+    const { data, error } = await db.from('scenes')
+      .insert({ name, icon, position: maxPos + 1 }).select().single();
+    if (error) { showToast('Erro ao salvar: ' + error.message, 'error'); return; }
+    sceneId = data.id;
+  }
+
+  const actionsRows = actions.map(a => ({ ...a, scene_id: sceneId }));
+  const { error: errIns } = await db.from('scene_actions').insert(actionsRows);
+  if (errIns) { showToast('Erro ao salvar ações: ' + errIns.message, 'error'); return; }
+
+  await loadScenes();
+  renderScenesPanel();
+  closeSceneModal();
+  showToast(`${icon} ${name} salva ✅`, 'success');
+}
+
+async function deleteEditingScene() {
+  if (!editingSceneId) return;
+  const s = allScenes.find(x => x.id === editingSceneId);
+  if (!s) return;
+  if (!confirm(`Apagar a cena "${s.name}"?`)) return;
+
+  const { error } = await db.from('scenes').delete().eq('id', editingSceneId);
+  if (error) { showToast('Erro ao apagar: ' + error.message, 'error'); return; }
+
+  allScenes = allScenes.filter(x => x.id !== editingSceneId);
+  renderScenesPanel();
+  closeSceneModal();
+  showToast(`🗑️ ${s.name} apagada`, 'info');
+}
+
+async function runScene(id) {
+  const scene = allScenes.find(s => s.id === id);
+  if (!scene) return;
+  const actions = scene.actions || [];
+  if (actions.length === 0) { showToast('Cena sem ações', 'info'); return; }
+
+  showToast(`${scene.icon || '🎬'} Executando "${scene.name}"…`, 'info');
+
+  let ok = 0, skipped = 0, failed = 0;
+  for (const a of actions) {
+    const device = allDevices.find(d => d.id === a.device_id);
+    if (!device) { failed++; continue; }
+    const wantOn = a.action === 'on';
+    if (device.status === wantOn) { skipped++; continue; }
+    try {
+      await updateDevice(a.device_id, { status: wantOn }, { silent: true });
+      ok++;
+    } catch (e) {
+      console.warn('Scene action failed', a, e);
+      failed++;
+    }
+  }
+
+  const parts = [];
+  if (ok)      parts.push(`${ok} aplicada${ok > 1 ? 's' : ''}`);
+  if (skipped) parts.push(`${skipped} já ok`);
+  if (failed)  parts.push(`${failed} erro${failed > 1 ? 's' : ''}`);
+  showToast(`${scene.icon || '🎬'} ${scene.name}: ${parts.join(' · ')}`,
+    failed ? 'error' : 'success');
 }
 
 // ============================================================
@@ -2736,9 +3404,10 @@ function openEditDeviceModal(id) {
   const d = allDevices.find(x => x.id === id);
   if (!d) return;
   editingDeviceId = id;
-  document.getElementById('editDeviceName').value    = d.name || '';
-  document.getElementById('editDeviceRoom').value    = d.room || '';
-  document.getElementById('editDeviceTuyaId').value  = d.tuya_device_id || '';
+  document.getElementById('editDeviceName').value           = d.name || '';
+  document.getElementById('editDeviceRoom').value           = d.room || '';
+  document.getElementById('editDeviceTuyaId').value         = d.tuya_device_id || '';
+  document.getElementById('editDeviceTuyaSwitchCode').value = d.tuya_switch_code || 'switch_1';
   document.getElementById('editDeviceModalOverlay').classList.add('open');
   setTimeout(() => document.getElementById('editDeviceName').focus(), 100);
 }
@@ -2750,17 +3419,25 @@ function closeEditDeviceModal() {
 
 async function saveEditingDevice() {
   if (!editingDeviceId) return;
-  const name = document.getElementById('editDeviceName').value.trim();
-  const room = document.getElementById('editDeviceRoom').value.trim();
-  const tid  = document.getElementById('editDeviceTuyaId').value.trim() || null;
+  const name    = document.getElementById('editDeviceName').value.trim();
+  const room    = document.getElementById('editDeviceRoom').value.trim();
+  const tid     = document.getElementById('editDeviceTuyaId').value.trim() || null;
+  const channel = document.getElementById('editDeviceTuyaSwitchCode').value || 'switch_1';
   if (!name || !room) { showToast('Preencha nome e cômodo', 'error'); return; }
 
-  const { error } = await db.from('devices')
-    .update({ name, room, tuya_device_id: tid }).eq('id', editingDeviceId);
+  const { error } = await db.from('devices').update({
+    name, room,
+    tuya_device_id:   tid,
+    tuya_switch_code: channel,
+  }).eq('id', editingDeviceId);
   if (error) { showToast('Erro ao salvar: ' + error.message, 'error'); return; }
 
   const d = allDevices.find(x => x.id === editingDeviceId);
-  if (d) { d.name = name; d.room = room; d.tuya_device_id = tid; }
+  if (d) {
+    d.name = name; d.room = room;
+    d.tuya_device_id = tid;
+    d.tuya_switch_code = channel;
+  }
   updateStats(); renderDevices();
   closeEditDeviceModal();
   showToast(`✏️ ${name} atualizado`, 'success');
@@ -3054,10 +3731,23 @@ function guessTypeFromTuya(t) {
 // MODAL - NOVO DISPOSITIVO
 // ============================================================
 function openModal(room = '') {
-  document.getElementById('newRoom').value = room;
+  // O chamador vem do renderDevices com encodeURIComponent — decodifica se necessário.
+  let decoded = room;
+  try { if (room && /%[0-9A-Fa-f]{2}/.test(room)) decoded = decodeURIComponent(room); }
+  catch (_) { decoded = room; }
+
+  document.getElementById('newRoom').value = decoded;
   document.getElementById('newName').value = '';
-  document.getElementById('newTuyaId').value = '';
   document.getElementById('newTuyaSwitchCode').value = 'switch_1';
+
+  // Sugere o Tuya Device ID do cômodo: se já existe algum dispositivo nessa
+  // sala com tuya_device_id cadastrado, pré-preenche com o mesmo ID (afinal
+  // interruptores multi-tecla compartilham o mesmo device_id).
+  const suggestion = decoded
+    ? (allDevices.find(d => d.room === decoded && d.tuya_device_id) || {}).tuya_device_id
+    : null;
+  document.getElementById('newTuyaId').value = suggestion || '';
+
   document.getElementById('modalOverlay').classList.add('open');
   setTimeout(() => document.getElementById('newName').focus(), 100);
 }
@@ -3180,6 +3870,18 @@ function subscribeRealtime() {
         pendingDeviceTimers.delete(devKey);
       }
       renderDevices();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'room_order' }, async () => {
+      await loadRoomOrder();
+      renderDevices();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'scenes' }, async () => {
+      await loadScenes();
+      renderScenesPanel();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'scene_actions' }, async () => {
+      await loadScenes();
+      renderScenesPanel();
     })
     .subscribe((status) => {
       showStatus(status === 'SUBSCRIBED');
