@@ -44,8 +44,12 @@ async function sha256(data: string): Promise<string> {
 
 async function getTuyaToken(): Promise<string> {
   const t = Date.now().toString();
-  const stringToSign = TUYA_ACCESS_ID + t + "" + "\n" +
-    await sha256("") + "\n" + "" + "\n" + "/v1.0/token?grant_type=1";
+  // Formato v2 da Tuya: access_id + t + nonce + method\n + sha256(body)\n + headers\n + url
+  const stringToSign = TUYA_ACCESS_ID + t + "" +
+    "GET" + "\n" +
+    await sha256("") + "\n" +
+    "" + "\n" +
+    "/v1.0/token?grant_type=1";
 
   const sign = await hmacSHA256(TUYA_ACCESS_SECRET, stringToSign);
 
@@ -72,8 +76,12 @@ async function tuyaRequest(
   const t = Date.now().toString();
   const bodyStr = body ? JSON.stringify(body) : "";
   const bodyHash = await sha256(bodyStr);
-  const stringToSign = TUYA_ACCESS_ID + token + t + "" + "\n" +
-    bodyHash + "\n" + "" + "\n" + path;
+  // Formato v2 da Tuya: access_id + access_token + t + nonce + method\n + sha256(body)\n + headers\n + url
+  const stringToSign = TUYA_ACCESS_ID + token + t + "" +
+    method + "\n" +
+    bodyHash + "\n" +
+    "" + "\n" +
+    path;
 
   const sign = await hmacSHA256(TUYA_ACCESS_SECRET, stringToSign);
 
