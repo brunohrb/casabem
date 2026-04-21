@@ -2,8 +2,16 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Casa Inteligente 🏠 — Bruno</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="theme-color" content="#1a6bb5" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="casa BEM" />
+  <link rel="apple-touch-icon" href="./logo.png" />
 
   <!-- Supabase JS SDK -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -1291,128 +1299,228 @@
     /* ============================================================
        MAPA DO APARTAMENTO
     ============================================================ */
-    #mapView { display: none; padding: 20px; }
+    #mapView { display: none; padding: 16px; }
     #mapView.visible { display: block; }
+
+    .map-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      max-width: 1100px;
+      margin: 0 auto 14px;
+      padding: 10px 14px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    }
+    .map-toolbar .mt-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--accent2);
+    }
+    .map-toolbar .mt-spacer { flex: 1; }
+    .map-toolbar label {
+      font-size: 12px;
+      color: var(--text2);
+      display: flex; align-items: center; gap: 5px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .map-toolbar label input[type="checkbox"] { cursor: pointer; }
+    .map-toolbar .mt-btn {
+      padding: 7px 14px;
+      border: 1.5px solid var(--border);
+      background: var(--bg3);
+      border-radius: 8px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text2);
+      cursor: pointer;
+      transition: all 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .map-toolbar .mt-btn:hover { border-color: var(--accent); color: var(--accent); background: #f0f7ff; }
+    .map-toolbar .mt-btn.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .map-toolbar .mt-btn.primary:hover { background: var(--accent2); }
 
     .map-wrapper {
       position: relative;
       width: 100%;
-      max-width: 760px;
+      max-width: 1100px;
       margin: 0 auto;
     }
 
     .map-floor {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr 1fr;
-      grid-template-rows: auto auto auto;
-      gap: 6px;
-      background: #e8edf3;
-      padding: 8px;
-      border-radius: 14px;
-      border: 2px solid #c8d4e0;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 12px;
+      padding: 0;
     }
 
     .map-room {
       background: #fff;
-      border-radius: 10px;
-      padding: 10px;
-      border: 1.5px solid #dde3ea;
+      border-radius: 14px;
+      padding: 14px;
+      border: 1.5px solid var(--border);
       position: relative;
-      min-height: 120px;
       display: flex;
       flex-direction: column;
-      transition: border-color 0.2s;
+      gap: 10px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    }
+    .map-room:hover { border-color: #b8d0f0; }
+    .map-room.has-on {
+      border-color: var(--green);
+      box-shadow: 0 0 0 1px rgba(39,168,69,0.15), 0 2px 10px rgba(39,168,69,0.08);
     }
 
-    .map-room:hover { border-color: #b8d0f0; }
-
     .map-room-label {
-      font-size: 10px;
+      font-size: 13px;
       font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.6px;
-      color: var(--text2);
-      margin-bottom: 8px;
-      padding-bottom: 6px;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding-bottom: 8px;
       border-bottom: 1px solid var(--border);
+    }
+    .map-room-label .mr-count {
+      margin-left: auto;
+      font-size: 10.5px;
+      color: var(--text2);
+      font-weight: 600;
+      background: var(--bg3);
+      padding: 2px 8px;
+      border-radius: 10px;
+    }
+    .map-room-label .mr-count.on-any {
+      color: var(--green);
+      background: #eaf8ee;
     }
 
     .map-devices {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      align-content: flex-start;
-      flex: 1;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+      gap: 8px;
     }
 
     .map-device-btn {
+      position: relative;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 3px;
-      padding: 8px 6px;
-      border-radius: 10px;
-      border: 1.5px solid #dde3ea;
-      background: #f8f9fb;
+      justify-content: center;
+      gap: 6px;
+      padding: 14px 8px 10px;
+      border-radius: 12px;
+      border: 1.5px solid var(--border);
+      background: var(--bg3);
       cursor: pointer;
-      transition: all 0.2s;
-      min-width: 58px;
-      font-size: 9px;
+      transition: all 0.18s;
+      min-height: 88px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--text2);
       line-height: 1.2;
       text-align: center;
+      overflow: hidden;
     }
 
     .map-device-btn:hover {
       border-color: var(--accent);
       background: #f0f7ff;
       color: var(--accent);
-      transform: scale(1.05);
+      transform: translateY(-1px);
+      box-shadow: 0 3px 10px rgba(26,107,181,0.18);
     }
 
     .map-device-btn.on {
       border-color: var(--green);
-      background: #f0fbf3;
-      color: var(--green);
-      box-shadow: 0 0 8px rgba(39,168,69,0.25);
+      background: #eaf9ee;
+      color: #196e2b;
+      box-shadow: 0 0 0 1px rgba(39,168,69,0.35), 0 2px 12px rgba(39,168,69,0.25);
     }
 
     .map-device-btn.on:hover {
       border-color: #1e9438;
-      background: #e6f9ec;
+      background: #dff5e5;
     }
 
-    .map-device-icon {
-      font-size: 20px;
+    .map-device-btn .map-device-icon {
+      font-size: 28px;
       line-height: 1;
     }
 
-    .map-device-icon.glow-on {
-      filter: drop-shadow(0 0 4px rgba(255,200,50,0.8));
+    .map-device-btn .map-device-name {
+      font-size: 11px;
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
     }
 
-    .map-device-icon.glow-ac {
-      filter: drop-shadow(0 0 4px rgba(80,160,255,0.7));
+    .map-device-btn .map-device-sub {
+      font-size: 10px;
+      color: var(--text2);
+      font-weight: 500;
+    }
+    .map-device-btn.on .map-device-sub { color: #2f7a3e; }
+
+    .map-device-btn .map-dev-actions {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      display: flex;
+      gap: 3px;
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+    .map-device-btn:hover .map-dev-actions { opacity: 0.85; }
+
+    .map-dev-action {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.85);
+      border: 1px solid var(--border);
+      font-size: 11px;
+      line-height: 1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text2);
+    }
+    .map-dev-action:hover { background: #fff; color: var(--accent); border-color: var(--accent); }
+
+    .map-device-btn.hidden-in-map {
+      opacity: 0.55;
+      border-style: dashed;
+    }
+    .map-device-btn.hidden-in-map::after {
+      content: '👁️‍🗨️';
+      position: absolute;
+      bottom: 4px;
+      left: 6px;
+      font-size: 12px;
+      opacity: 0.75;
     }
 
-    /* Sala ocupa 2 colunas */
-    .map-room.sala { grid-column: span 2; min-height: 150px; }
-
-    /* Quarto Casal ocupa 2 colunas */
-    .map-room.quarto-casal { grid-column: span 2; min-height: 150px; }
-
-    /* Área externa ocupa todas as colunas */
-    .map-room.area-externa { grid-column: span 4; min-height: 80px; }
-    .map-room.area-externa .map-devices { flex-direction: row; }
-
-    /* Legenda */
     .map-legend {
       display: flex;
       gap: 16px;
       justify-content: center;
-      margin-top: 12px;
+      margin-top: 14px;
       font-size: 11px;
       color: var(--text2);
     }
@@ -1432,12 +1540,105 @@
     .legend-dot.on  { background: var(--green); box-shadow: 0 0 4px rgba(39,168,69,0.5); }
     .legend-dot.off { background: #c8d4e0; }
 
+    /* ============================================================
+       MODO QUIOSQUE (tablet na parede)
+    ============================================================ */
+    body.kiosk { background: #0e1a26; color: #e6edf5; }
+    body.kiosk header,
+    body.kiosk .stats-bar,
+    body.kiosk .sidebar,
+    body.kiosk .section-header,
+    body.kiosk .map-toolbar { display: none !important; }
+    body.kiosk .main { grid-template-columns: 1fr; }
+    body.kiosk .devices-panel { padding: 14px; border-right: 0; background: transparent; }
+    body.kiosk #listaView { display: none !important; }
+    body.kiosk #mapView { display: block !important; padding: 18px; }
+
+    body.kiosk .map-wrapper { max-width: none; }
+    body.kiosk .map-floor {
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 14px;
+    }
+    body.kiosk .map-room {
+      background: rgba(255,255,255,0.04);
+      border-color: rgba(255,255,255,0.12);
+      color: #e6edf5;
+    }
+    body.kiosk .map-room-label {
+      color: #e6edf5;
+      border-bottom-color: rgba(255,255,255,0.12);
+      font-size: 17px;
+    }
+    body.kiosk .map-room-label .mr-count {
+      background: rgba(255,255,255,0.08);
+      color: #aec2d6;
+    }
+    body.kiosk .map-room-label .mr-count.on-any {
+      background: rgba(39,168,69,0.22);
+      color: #8df0a0;
+    }
+    body.kiosk .map-device-btn {
+      background: rgba(255,255,255,0.05);
+      border-color: rgba(255,255,255,0.12);
+      color: #aec2d6;
+      min-height: 120px;
+      font-size: 13px;
+    }
+    body.kiosk .map-device-btn:hover {
+      background: rgba(26,107,181,0.2);
+      border-color: #4ea6eb;
+      color: #fff;
+    }
+    body.kiosk .map-device-btn.on {
+      background: rgba(39,168,69,0.18);
+      border-color: rgba(141,240,160,0.65);
+      color: #c9f7d4;
+      box-shadow: 0 0 0 1px rgba(141,240,160,0.35), 0 3px 18px rgba(39,168,69,0.3);
+    }
+    body.kiosk .map-device-btn .map-device-icon { font-size: 38px; }
+    body.kiosk .map-device-btn .map-device-name { font-size: 13px; }
+    body.kiosk .map-device-btn .map-dev-actions { display: none; }
+
+    /* Botão de saída do kiosk — sempre visível no canto */
+    .kiosk-exit-btn {
+      display: none;
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      z-index: 9999;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.25);
+      color: #e6edf5;
+      font-size: 16px;
+      cursor: pointer;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+    }
+    .kiosk-exit-btn:hover { background: rgba(255,255,255,0.18); }
+    body.kiosk .kiosk-exit-btn { display: flex; align-items: center; justify-content: center; }
+
+    /* Relógio do quiosque */
+    .kiosk-clock {
+      display: none;
+      text-align: center;
+      margin-bottom: 18px;
+      color: #aec2d6;
+    }
+    .kiosk-clock .kc-time {
+      font-size: 42px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: 1px;
+    }
+    .kiosk-clock .kc-date { font-size: 13px; text-transform: capitalize; }
+    body.kiosk .kiosk-clock { display: block; }
+
     @media (max-width: 600px) {
-      .map-floor { grid-template-columns: 1fr 1fr; }
-      .map-room.sala { grid-column: span 2; }
-      .map-room.quarto-casal { grid-column: span 2; }
-      .map-room.area-externa { grid-column: span 2; }
       #mapView { padding: 10px; }
+      .map-floor { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+      body.kiosk .kiosk-clock .kc-time { font-size: 32px; }
     }
 
     /* ============================================================
@@ -1533,6 +1734,22 @@
 
     <!-- MAPA VIEW -->
     <div id="mapView">
+      <div class="map-toolbar">
+        <span class="mt-title">🗺️ Mapa da Casa</span>
+        <span class="mt-spacer"></span>
+        <label title="Mostra no mapa dispositivos marcados como ocultos">
+          <input type="checkbox" id="mapShowHidden" onchange="toggleShowHidden(this.checked)" />
+          Mostrar ocultos
+        </label>
+        <button class="mt-btn" onclick="openModal()">➕ Novo</button>
+        <button class="mt-btn primary" onclick="enterKioskMode()" title="Esconde tudo e deixa só o mapa (ideal p/ tablet de parede)">📺 Modo Quiosque</button>
+      </div>
+
+      <div class="kiosk-clock" id="kioskClock">
+        <div class="kc-time">--:--</div>
+        <div class="kc-date">—</div>
+      </div>
+
       <div class="map-wrapper">
         <div class="map-floor" id="mapFloor">
           <!-- gerado por JS -->
@@ -1773,9 +1990,12 @@
     <div class="usage-panel" id="usagePanel">
       <div class="empty-state" style="padding:16px">Carregando…</div>
     </div>
-    <div class="modal-actions">
+    <div class="modal-actions" style="justify-content:space-between">
       <button class="btn btn-ghost" onclick="closeUsageModal()">Fechar</button>
-      <button class="btn btn-primary" onclick="renderUsagePanel()">🔄 Atualizar</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" onclick="renderUsagePanel()">🔄 Atualizar</button>
+        <button class="btn btn-primary" onclick="forceTuyaSync(this)">📡 Sincronizar agora</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1834,6 +2054,12 @@
         <option value="switch_8">switch_8 (tecla 8)</option>
         <option value="switch_led">switch_led (lâmpada c/ dimmer)</option>
       </select>
+    </div>
+    <div class="form-row">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none">
+        <input type="checkbox" id="editDeviceHiddenInMap" />
+        <span>Ocultar no Mapa <small style="color:var(--text2)">(continua na Lista)</small></span>
+      </label>
     </div>
     <div class="modal-actions" style="justify-content:space-between">
       <button class="btn btn-ghost" style="color:var(--red)"
@@ -1924,6 +2150,9 @@
 <!-- TOAST -->
 <div id="toast"></div>
 
+<!-- Botão de sair do modo quiosque (só aparece em body.kiosk) -->
+<button class="kiosk-exit-btn" id="kioskExitBtn" title="Sair do Modo Quiosque" onclick="exitKioskMode()">✕</button>
+
 <!-- ============================================================
      SCRIPT PRINCIPAL
 ============================================================ -->
@@ -1934,7 +2163,8 @@
 const SUPABASE_URL = 'https://egonicvreizaknzwqvbt.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnb25pY3ZyZWl6YWtuendxdmJ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxOTQ2ODIsImV4cCI6MjA4OTc3MDY4Mn0.MRNFahn8obGmRHowMliJUIzdcO_CSa-z3IX1RlXdDgw';
 // Edge Function para controle físico via Tuya
-const TUYA_EDGE_FN = 'https://egonicvreizaknzwqvbt.supabase.co/functions/v1/tuya-control';
+const TUYA_EDGE_FN  = 'https://egonicvreizaknzwqvbt.supabase.co/functions/v1/tuya-control';
+const TUYA_SYNC_FN  = 'https://egonicvreizaknzwqvbt.supabase.co/functions/v1/tuya-sync';
 // ============================================================
 
 const { createClient } = supabase;
@@ -1952,9 +2182,36 @@ let roomOrder    = {};   // { "Sala": 0, "Quarto": 1, ... }
 document.addEventListener('DOMContentLoaded', async () => {
   await loadAll();
   subscribeRealtime();
+  registerServiceWorker();
+  applyStartupUrlParams();
   // Inicia escuta de voz automática (pede permissão de microfone na 1ª vez)
   autoStartVoice();
 });
+
+// Lê ?view=mapa e ?mode=kiosk ao iniciar (usado pelos atalhos do PWA
+// e também se o usuário salvou "estava em quiosque" no localStorage).
+function applyStartupUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('view') === 'mapa') switchView('mapa');
+  // Auto-kiosk se o PWA abriu via atalho ?mode=kiosk OU se o usuário
+  // saiu do app estando em quiosque (persistiu em localStorage).
+  const wantKiosk = params.get('mode') === 'kiosk'
+                 || localStorage.getItem('casabem_kiosk') === '1';
+  if (wantKiosk) {
+    // skipFullscreen: alguns browsers só permitem fullscreen por gesto
+    // direto do usuário — evitamos o erro de promise rejeitada.
+    enterKioskMode({ skipFullscreen: true, skipUrl: true });
+  }
+}
+
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  // Em localhost o SW pode atrapalhar o hot reload; liberamos em
+  // produção (file:// também não suporta, então protegemos).
+  if (location.protocol === 'file:') return;
+  navigator.serviceWorker.register('./service-worker.js')
+    .catch(err => console.warn('[SW] registration failed', err));
+}
 
 async function loadAll() {
   await Promise.all([
@@ -2001,6 +2258,9 @@ async function loadDevices() {
 }
 
 function renderDevices() {
+  // Mantém o Mapa sincronizado sem precisar tocar em cada caller.
+  renderMapIfVisible();
+
   const container = document.getElementById('devicesList');
 
   if (allDevices.length === 0) {
@@ -2048,6 +2308,8 @@ function renderDevices() {
           ${roomIcons[room] || '🏠'} ${escapeHtml(room)}
           <span class="room-count">${devices.length}</span>
           <span class="room-reorder">
+            <button class="room-arrow" title="Renomear cômodo"
+              onclick="renameRoom('${roomEnc}')">✏️</button>
             <button class="room-arrow" title="Subir" ${isFirst ? 'disabled' : ''}
               onclick="moveRoom('${roomEnc}', -1)">↑</button>
             <button class="room-arrow" title="Descer" ${isLast ? 'disabled' : ''}
@@ -2064,6 +2326,55 @@ function renderDevices() {
       </div>
     `;
   }).join('');
+}
+
+// ============================================================
+// RENOMEAR CÔMODO
+// ------------------------------------------------------------
+// Renomeia todos os devices com aquele `room` e migra a posição
+// em room_order para o novo nome (preservando a ordem).
+// ============================================================
+async function renameRoom(encodedRoom) {
+  const oldName = decodeURIComponent(encodedRoom);
+  const newName = prompt(
+    `Renomear o cômodo "${oldName}" para:`, oldName
+  );
+  if (newName === null) return;                       // cancelou
+  const trimmed = newName.trim();
+  if (!trimmed || trimmed === oldName) return;        // nada a fazer
+
+  // Evita colidir com um cômodo existente (merge silencioso poderia
+  // confundir). Se quiser mergir, basta repetir o nome e os devices
+  // daquele lado também viram parte do outro — perguntamos antes.
+  const exists = allDevices.some(d => d.room === trimmed);
+  if (exists) {
+    const confirmMerge = confirm(
+      `Já existe um cômodo chamado "${trimmed}". ` +
+      `Quer juntar os dispositivos de "${oldName}" nele?`
+    );
+    if (!confirmMerge) return;
+  }
+
+  // 1. Atualiza todos os dispositivos
+  const { error: e1 } = await db.from('devices')
+    .update({ room: trimmed }).eq('room', oldName);
+  if (e1) { showToast('Erro ao renomear: ' + e1.message, 'error'); return; }
+
+  // 2. Ajusta room_order: transfere a posição do nome antigo pro novo
+  if (Object.prototype.hasOwnProperty.call(roomOrder, oldName)) {
+    const pos = roomOrder[oldName];
+    // Remove o antigo e faz upsert do novo (evita conflito de PK)
+    await db.from('room_order').delete().eq('name', oldName);
+    await db.from('room_order').upsert({ name: trimmed, position: pos }, { onConflict: 'name' });
+    delete roomOrder[oldName];
+    roomOrder[trimmed] = pos;
+  }
+
+  // 3. Estado local
+  for (const d of allDevices) if (d.room === oldName) d.room = trimmed;
+
+  renderDevices();
+  showToast(`✏️ "${oldName}" → "${trimmed}"`, 'success');
 }
 
 // ============================================================
@@ -2410,7 +2721,8 @@ async function desligarPorTipo(tipo) {
 // ============================================================
 // VIEW SWITCHER (Lista / Mapa)
 // ============================================================
-let currentView = 'lista';
+let currentView  = 'lista';
+let mapShowHidden = false;    // mostra dispositivos marcados hidden_in_map
 
 function switchView(view) {
   currentView = view;
@@ -2422,133 +2734,212 @@ function switchView(view) {
 }
 
 // ============================================================
-// MAPA DO APARTAMENTO
+// MAPA DO APARTAMENTO (dinâmico, respeita room_order)
 // ============================================================
-
-// Layout dos cômodos no mapa: { id, label, cssClass, deviceNames[] }
-// deviceNames[] filtra por nome exato ou parcial
-const MAP_ROOMS = [
-  {
-    id: 'sala',
-    label: '🛋️ Sala',
-    cssClass: 'sala',
-    filter: d => d.room === 'Sala',
-  },
-  {
-    id: 'quarto-casal',
-    label: '🛏️ Quarto Casal',
-    cssClass: 'quarto-casal',
-    filter: d => d.room === 'Quarto Casal',
-  },
-  {
-    id: 'quarto-clarinha',
-    label: '🛏️ Quarto Clarinha',
-    cssClass: '',
-    filter: d => d.room === 'Quarto Clarinha',
-  },
-  {
-    id: 'escritorio',
-    label: '💼 Escritório',
-    cssClass: '',
-    filter: d => d.room === 'Escritório',
-  },
-  {
-    id: 'banheiro',
-    label: '🚿 Banheiro',
-    cssClass: '',
-    filter: d => d.room === 'Banheiro',
-  },
-  {
-    id: 'lavabo',
-    label: '🪥 Lavabo',
-    cssClass: '',
-    filter: d => d.room === 'Lavabo',
-  },
-  {
-    id: 'hall',
-    label: '🚪 Hall',
-    cssClass: '',
-    filter: d => d.room === 'Hall',
-  },
-  {
-    id: 'area-externa',
-    label: '🏊 Área Externa / Geral',
-    cssClass: 'area-externa',
-    filter: d => d.room === 'Área Externa' || d.room === 'Geral',
-  },
-];
-
-function deviceIcon(type, on) {
+function deviceIcon(type) {
   const icons = { light: '💡', ac: '❄️', tv: '📺', vacuum: '🤖', other: '🔌' };
   return icons[type] || '🔌';
 }
 
+const ROOM_ICONS_MAP = {
+  'Sala':'🛋️', 'Quarto':'🛏️', 'Quarto Casal':'🛏️', 'Quarto Clarinha':'🛏️',
+  'Cozinha':'🍳', 'Banheiro':'🚿', 'Lavabo':'🪥', 'Hall':'🚪',
+  'Varanda':'🌿', 'Escritório':'💼', 'Garagem':'🚗',
+  'Área Externa':'🏊', 'Geral':'🔌'
+};
+
 function renderMap() {
   const floor = document.getElementById('mapFloor');
-  floor.innerHTML = '';
+  if (!floor) return;
 
-  MAP_ROOMS.forEach(room => {
-    const devices = allDevices.filter(room.filter);
-    if (devices.length === 0) return;
+  // Filtra dispositivos ocultos (a menos que o toggle esteja ativo ou kiosk).
+  const inKiosk = document.body.classList.contains('kiosk');
+  const list = allDevices.filter(d =>
+    mapShowHidden || !d.hidden_in_map || (inKiosk && false)   // em kiosk SEMPRE esconde ocultos
+  );
 
-    const roomEl = document.createElement('div');
-    roomEl.className = 'map-room' + (room.cssClass ? ' ' + room.cssClass : '');
+  if (list.length === 0) {
+    floor.innerHTML = `
+      <div class="empty-state" style="padding:40px;grid-column:1/-1;background:#fff;border-radius:12px">
+        <div class="es-icon">📦</div>
+        <p>Nada para mostrar aqui.</p>
+        <p style="margin-top:8px;color:var(--text2)">
+          ${allDevices.length === 0 ? 'Cadastre um dispositivo primeiro.' : 'Todos estão ocultos — marque "Mostrar ocultos" acima.'}
+        </p>
+      </div>`;
+    return;
+  }
 
-    const label = document.createElement('div');
-    label.className = 'map-room-label';
-    label.textContent = room.label;
-    roomEl.appendChild(label);
+  // Agrupa por cômodo (mesma lógica da Lista)
+  const rooms = {};
+  for (const d of list) (rooms[d.room] ||= []).push(d);
 
-    const devGrid = document.createElement('div');
-    devGrid.className = 'map-devices';
-
-    devices.forEach(d => {
-      const btn = document.createElement('button');
-      btn.className = 'map-device-btn' + (d.status ? ' on' : '');
-      btn.id = 'mapdev-' + d.id;
-      btn.title = d.status ? 'Ligado — clique para desligar' : 'Desligado — clique para ligar';
-
-      const iconEl = document.createElement('div');
-      iconEl.className = 'map-device-icon' + (d.status && d.type === 'light' ? ' glow-on' : '') + (d.status && d.type === 'ac' ? ' glow-ac' : '');
-      iconEl.textContent = deviceIcon(d.type, d.status);
-
-      const nameEl = document.createElement('div');
-      // Abreviar nomes longos
-      let shortName = d.name
-        .replace('Ar-condicionado','AC')
-        .replace('Aquecedor ','Aquec. ')
-        .replace('Cabeceira Direita','Cabeceira')
-        .replace('Penteadeira','Pentead.')
-        .replace('4 Gang Switch','4-Gang');
-      nameEl.textContent = shortName;
-
-      btn.appendChild(iconEl);
-      btn.appendChild(nameEl);
-      btn.onclick = () => toggleMapDevice(d.id);
-      devGrid.appendChild(btn);
-    });
-
-    roomEl.appendChild(devGrid);
-    floor.appendChild(roomEl);
+  const orderedRooms = Object.keys(rooms).sort((a, b) => {
+    const hasA = Object.prototype.hasOwnProperty.call(roomOrder, a);
+    const hasB = Object.prototype.hasOwnProperty.call(roomOrder, b);
+    if (hasA && hasB) return roomOrder[a] - roomOrder[b];
+    if (hasA) return -1;
+    if (hasB) return 1;
+    return a.localeCompare(b, 'pt-BR');
   });
+
+  floor.innerHTML = orderedRooms.map(room => {
+    const devs  = rooms[room];
+    const onCt  = devs.filter(d => d.status).length;
+    const icon  = ROOM_ICONS_MAP[room] || '🏠';
+    const countCls = onCt > 0 ? 'on-any' : '';
+
+    const btnsHtml = devs.map(d => {
+      const classes = [
+        'map-device-btn',
+        d.status ? 'on' : '',
+        d.hidden_in_map ? 'hidden-in-map' : '',
+      ].filter(Boolean).join(' ');
+      const sub = d.status
+        ? (d.type === 'ac' && d.temperature ? `${d.temperature}°C` :
+           d.type === 'light' && d.brightness != null ? `${d.brightness}%` :
+           'Ligado')
+        : 'Desligado';
+      return `
+        <button class="${classes}" id="mapdev-${d.id}" onclick="toggleMapDevice('${d.id}')"
+          title="${escapeHtml(d.name)} · ${d.status ? 'Ligado' : 'Desligado'}">
+          <div class="map-dev-actions">
+            <button class="map-dev-action" title="Editar"
+              onclick="event.stopPropagation();openEditDeviceModal('${d.id}')">✏️</button>
+            <button class="map-dev-action" title="${d.hidden_in_map ? 'Mostrar no mapa' : 'Ocultar do mapa'}"
+              onclick="event.stopPropagation();toggleHiddenInMap('${d.id}')">${d.hidden_in_map ? '👁' : '🙈'}</button>
+          </div>
+          <div class="map-device-icon">${deviceIcon(d.type)}</div>
+          <div class="map-device-name">${escapeHtml(d.name)}</div>
+          <div class="map-device-sub">${sub}</div>
+        </button>`;
+    }).join('');
+
+    return `
+      <div class="map-room ${onCt > 0 ? 'has-on' : ''}" data-room="${escapeHtml(room)}">
+        <div class="map-room-label">
+          ${icon} ${escapeHtml(room)}
+          <span class="mr-count ${countCls}">${onCt}/${devs.length}</span>
+        </div>
+        <div class="map-devices">${btnsHtml}</div>
+      </div>`;
+  }).join('');
 }
 
 async function toggleMapDevice(id) {
   const device = allDevices.find(d => d.id === id);
   if (!device) return;
   const newStatus = !device.status;
-  // Feedback imediato no botão
+  // Feedback imediato na UI (re-renderizado em seguida pelo updateDevice)
   const btn = document.getElementById('mapdev-' + id);
-  if (btn) {
-    btn.classList.toggle('on', newStatus);
-    btn.querySelector('.map-device-icon').className =
-      'map-device-icon' +
-      (newStatus && device.type === 'light' ? ' glow-on' : '') +
-      (newStatus && device.type === 'ac' ? ' glow-ac' : '');
-  }
-  // Reutiliza o mesmo updateDevice da lista
+  if (btn) btn.classList.toggle('on', newStatus);
   await updateDevice(id, { status: newStatus });
 }
+
+function renderMapIfVisible() {
+  if (currentView === 'mapa' || document.body.classList.contains('kiosk')) renderMap();
+}
+
+async function toggleHiddenInMap(id) {
+  const d = allDevices.find(x => x.id === id);
+  if (!d) return;
+  const novo = !d.hidden_in_map;
+  const { error } = await db.from('devices').update({ hidden_in_map: novo }).eq('id', id);
+  if (error) { showToast('Erro: ' + error.message, 'error'); return; }
+  d.hidden_in_map = novo;
+  renderMap();
+  renderDevices();
+  showToast(novo ? `🙈 ${d.name} oculto do Mapa` : `👁 ${d.name} visível no Mapa`, 'info');
+}
+
+function toggleShowHidden(on) {
+  mapShowHidden = !!on;
+  renderMap();
+}
+
+// ============================================================
+// MODO QUIOSQUE (tablet na parede)
+// ------------------------------------------------------------
+// - Esconde header, sidebar, stats, toolbar.
+// - Força a view Mapa.
+// - Tenta entrar em fullscreen.
+// - Relógio grande no topo.
+// - Persiste a intenção em localStorage para o PWA abrir no modo
+//   certo se o usuário adicionou o atalho "Quiosque".
+// ============================================================
+let kioskClockTimer = null;
+
+function enterKioskMode(opts = {}) {
+  document.body.classList.add('kiosk');
+  // Garante que estamos no mapa
+  switchView('mapa');
+  renderMap();
+  startKioskClock();
+
+  // Requesta fullscreen se possível (ignora falha silenciosamente)
+  if (!opts.skipFullscreen && document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
+
+  // Impede o dispositivo de dormir (onde suportado — Chrome/Edge)
+  requestWakeLock();
+
+  if (!opts.skipUrl) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', 'mapa');
+    url.searchParams.set('mode', 'kiosk');
+    history.replaceState(null, '', url.toString());
+  }
+  localStorage.setItem('casabem_kiosk', '1');
+}
+
+function exitKioskMode() {
+  document.body.classList.remove('kiosk');
+  stopKioskClock();
+  releaseWakeLock();
+  if (document.fullscreenElement && document.exitFullscreen) {
+    document.exitFullscreen().catch(() => {});
+  }
+  const url = new URL(window.location.href);
+  url.searchParams.delete('mode');
+  history.replaceState(null, '', url.toString());
+  localStorage.removeItem('casabem_kiosk');
+}
+
+function startKioskClock() {
+  const el = document.getElementById('kioskClock');
+  if (!el) return;
+  const tick = () => {
+    const now = new Date();
+    el.querySelector('.kc-time').textContent = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    el.querySelector('.kc-date').textContent = now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+  };
+  tick();
+  clearInterval(kioskClockTimer);
+  kioskClockTimer = setInterval(tick, 30_000);
+}
+function stopKioskClock() { clearInterval(kioskClockTimer); kioskClockTimer = null; }
+
+// Wake Lock API — mantém a tela ligada no tablet/celular.
+let wakeLockSentinel = null;
+async function requestWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLockSentinel = await navigator.wakeLock.request('screen');
+      wakeLockSentinel.addEventListener('release', () => { wakeLockSentinel = null; });
+    }
+  } catch (_) { /* sem permissão / não suportado */ }
+}
+async function releaseWakeLock() {
+  try { if (wakeLockSentinel) await wakeLockSentinel.release(); }
+  catch (_) {}
+  wakeLockSentinel = null;
+}
+// Se a tela foi dormir e acordou, o lock cai — reativa ao voltar.
+document.addEventListener('visibilitychange', () => {
+  if (!document.body.classList.contains('kiosk')) return;
+  if (document.visibilityState === 'visible') requestWakeLock();
+});
 
 // ============================================================
 // ESTATÍSTICAS
@@ -3195,6 +3586,45 @@ function typeIcon(t) {
   return { light:'💡', ac:'❄️', tv:'📺', vacuum:'🤖', other:'🔌' }[t] || '🔌';
 }
 
+// Dispara uma rodada do tuya-sync na hora (útil se o cron do Supabase
+// não está rodando ou pra testar depois de apertar o interruptor).
+async function forceTuyaSync(btn) {
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Sincronizando…';
+  try {
+    const r = await fetch(TUYA_SYNC_FN, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey':        SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+      },
+      body: JSON.stringify({}),
+    });
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error || 'sync falhou');
+
+    // Recarrega dispositivos (o realtime também vai propagar, mas
+    // forçamos pra não esperar).
+    await loadDevices();
+    renderUsagePanel();
+    renderDevices();
+    updateStats();
+
+    const msg = j.changed > 0
+      ? `✅ ${j.changed} dispositivo(s) atualizado(s) de ${j.checked} · ${j.took_ms}ms`
+      : `✅ ${j.checked} dispositivo(s) verificado(s), nada mudou · ${j.took_ms}ms`;
+    showToast(msg, j.changed ? 'success' : 'info');
+  } catch (e) {
+    showToast('Erro ao sincronizar: ' + (e.message || e), 'error');
+    console.warn('forceTuyaSync error:', e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
 // ============================================================
 // CENAS / ATALHOS DINÂMICOS
 // ------------------------------------------------------------
@@ -3408,6 +3838,7 @@ function openEditDeviceModal(id) {
   document.getElementById('editDeviceRoom').value           = d.room || '';
   document.getElementById('editDeviceTuyaId').value         = d.tuya_device_id || '';
   document.getElementById('editDeviceTuyaSwitchCode').value = d.tuya_switch_code || 'switch_1';
+  document.getElementById('editDeviceHiddenInMap').checked  = !!d.hidden_in_map;
   document.getElementById('editDeviceModalOverlay').classList.add('open');
   setTimeout(() => document.getElementById('editDeviceName').focus(), 100);
 }
@@ -3423,12 +3854,14 @@ async function saveEditingDevice() {
   const room    = document.getElementById('editDeviceRoom').value.trim();
   const tid     = document.getElementById('editDeviceTuyaId').value.trim() || null;
   const channel = document.getElementById('editDeviceTuyaSwitchCode').value || 'switch_1';
+  const hidden  = document.getElementById('editDeviceHiddenInMap').checked;
   if (!name || !room) { showToast('Preencha nome e cômodo', 'error'); return; }
 
   const { error } = await db.from('devices').update({
     name, room,
     tuya_device_id:   tid,
     tuya_switch_code: channel,
+    hidden_in_map:    hidden,
   }).eq('id', editingDeviceId);
   if (error) { showToast('Erro ao salvar: ' + error.message, 'error'); return; }
 
@@ -3437,8 +3870,10 @@ async function saveEditingDevice() {
     d.name = name; d.room = room;
     d.tuya_device_id = tid;
     d.tuya_switch_code = channel;
+    d.hidden_in_map = hidden;
   }
   updateStats(); renderDevices();
+  if (currentView === 'mapa' || document.body.classList.contains('kiosk')) renderMap();
   closeEditDeviceModal();
   showToast(`✏️ ${name} atualizado`, 'success');
 }

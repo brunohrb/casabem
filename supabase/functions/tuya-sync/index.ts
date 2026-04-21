@@ -46,16 +46,39 @@ async function tuyaStatus(tuyaDeviceId: string): Promise<any> {
   return r.json();
 }
 
-// Tuya retorna um array de { code, value } por device. Códigos comuns
-// que indicam estado ligado: switch_led, switch_1, switch.
-function extractStatus(points: Array<{ code: string; value: unknown }>): boolean | null {
+// Tuya retorna um array de { code, value } por device. O usuário pode
+// ter vários "casa BEM devices" apontando pro mesmo tuya_device_id, cada
+// um representando uma tecla (switch_1, switch_2, …, switch_led).
+//
+// Regras:
+//   1. Tenta o `switchCode` exato do dispositivo (sempre prioritário).
+//   2. Se NÃO há multi-tecla (apenas um casa BEM device usa esse
+//      tuya_device_id) caímos em fallbacks genéricos — útil quando
+//      a lâmpada usa `switch_led` e o device foi cadastrado com
+//      `switch_1` por padrão.
+//   3. Se HÁ multi-tecla, NÃO caímos em fallback: senão todas as
+//      teclas leriam o mesmo switch_1 e a 2/3/4 nunca dariam sync.
+function extractStatus(
+  points: Array<{ code: string; value: unknown }>,
+  switchCode: string | null | undefined,
+  multi: boolean,
+): boolean | null {
   if (!Array.isArray(points)) return null;
-  for (const code of ["switch_led", "switch_1", "switch", "led_switch"]) {
-    const p = points.find(x => x.code === code);
+
+  if (switchCode) {
+    const p = points.find(x => x.code === switchCode);
     if (p && typeof p.value === "boolean") return p.value;
   }
-  const power = points.find(x => x.code === "power" || x.code === "work_state");
-  if (power && typeof power.value === "boolean") return power.value;
+
+  if (!multi) {
+    for (const code of ["switch_led", "switch_1", "switch", "led_switch"]) {
+      const p = points.find(x => x.code === code);
+      if (p && typeof p.value === "boolean") return p.value;
+    }
+    const power = points.find(x => x.code === "power" || x.code === "work_state");
+    if (power && typeof power.value === "boolean") return power.value;
+  }
+
   return null;
 }
 
@@ -87,7 +110,7 @@ Deno.serve(async (req) => {
   try {
     const { data: devices, error } = await db
       .from("devices")
-      .select("id, name, type, room, status, brightness, tuya_device_id")
+      .select("id, name, type, room, status, brightness, tuya_device_id, tuya_switch_code")
       .not("tuya_device_id", "is", null);
     if (error) throw error;
     if (!devices || devices.length === 0) {
@@ -97,16 +120,32 @@ Deno.serve(async (req) => {
     let changed = 0;
     const changes: any[] = [];
 
+    // Vários "casa BEM devices" podem apontar para o mesmo tuya_device_id
+    // (interruptor multi-tecla). Cache por tuya_device_id evita chamar
+    // a Tuya Cloud várias vezes por ciclo, e um mapa de contagem nos
+    // diz se aquele device_id é multi-tecla (afeta o fallback em
+    // extractStatus).
+    const statusCache = new Map<string, any>();
+    const mapCount    = new Map<string, number>();
+    for (const d of devices) {
+      mapCount.set(d.tuya_device_id!, (mapCount.get(d.tuya_device_id!) ?? 0) + 1);
+    }
+
     for (const d of devices) {
       try {
-        const res = await tuyaStatus(d.tuya_device_id!);
+        let res = statusCache.get(d.tuya_device_id!);
+        if (!res) {
+          res = await tuyaStatus(d.tuya_device_id!);
+          statusCache.set(d.tuya_device_id!, res);
+        }
         // tuya-control devolve o JSON puro da Tuya: { success, result: [...] }
         if (!res || !res.success) {
           changes.push({ id: d.id, error: res?.msg ?? "tuya fail" });
           continue;
         }
         const points     = res.result ?? [];
-        const realStatus = extractStatus(points);
+        const isMulti    = (mapCount.get(d.tuya_device_id!) ?? 1) > 1;
+        const realStatus = extractStatus(points, d.tuya_switch_code, isMulti);
         const realBright = extractBrightness(points);
 
         if (realStatus === null) {
