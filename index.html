@@ -2062,6 +2062,14 @@
       </select>
     </div>
     <div class="form-row">
+      <label>ID do Hub IR <small style="color:var(--text2)">(p/ ar/TV via controle universal)</small></label>
+      <input type="text" id="editDeviceIrParentId" placeholder="bf... (tuya_device_id do hub IR)" />
+      <small style="color:var(--text2);font-size:11px;margin-top:4px;display:block">
+        Preenche quando o aparelho é controlado por um <b>hub IR</b> (ex.: Moes/Tuya Universal).
+        O Tuya ID acima passa a ser o do "remote" pareado; o Canal Tuya é ignorado.
+      </small>
+    </div>
+    <div class="form-row">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none">
         <input type="checkbox" id="editDeviceHiddenInMap" />
         <span>Ocultar no Mapa <small style="color:var(--text2)">(continua na Lista)</small></span>
@@ -2598,20 +2606,35 @@ async function updateDevice(id, fields, opts = {}) {
   // ── Controle físico via Tuya (se dispositivo tiver tuya_device_id) ──
   if ('status' in fields && device.tuya_device_id) {
     try {
+      // Dispositivos IR (via hub universal) precisam ir pelo endpoint
+      // /v2.0/infrareds/... — o Edge Function faz o roteamento quando
+      // ir_parent_id está preenchido. device_type ajuda a escolher entre
+      // AC (/air-conditioners/...) e TV/outro (/remotes/.../keys/Power).
+      const irHub = device.ir_parent_id || null;
+      const body  = irHub
+        ? {
+            action:        'control',
+            device_id:     device.tuya_device_id,
+            ir_parent_id:  irHub,
+            device_type:   device.type === 'ac' ? 'ac' : 'tv',
+            value:         fields.status,
+          }
+        : {
+            action:      'control',
+            device_id:   device.tuya_device_id,
+            switch_code: device.tuya_switch_code || 'switch_1',
+            value:       fields.status,
+          };
       const resp = await fetch(TUYA_EDGE_FN, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
-        body: JSON.stringify({
-          action:      'control',
-          device_id:   device.tuya_device_id,
-          switch_code: device.tuya_switch_code || 'switch_1',
-          value:       fields.status,
-        }),
+        body: JSON.stringify(body),
       });
       const result = await resp.json();
       if (!result.success) {
         console.warn('Tuya control failed:', result);
-        showToast(`${device.name}: erro Tuya ⚠️`, 'error');
+        const detail = result?.msg || result?.error || '';
+        showToast(`${device.name}: erro Tuya ${detail ? '· ' + detail : '⚠️'}`, 'error');
       }
     } catch (e) {
       console.warn('Tuya fetch error:', e);
@@ -3850,6 +3873,7 @@ function openEditDeviceModal(id) {
   document.getElementById('editDeviceRoom').value           = d.room || '';
   document.getElementById('editDeviceTuyaId').value         = d.tuya_device_id || '';
   document.getElementById('editDeviceTuyaSwitchCode').value = d.tuya_switch_code || 'switch_1';
+  document.getElementById('editDeviceIrParentId').value     = d.ir_parent_id || '';
   document.getElementById('editDeviceHiddenInMap').checked  = !!d.hidden_in_map;
   document.getElementById('editDeviceModalOverlay').classList.add('open');
   setTimeout(() => document.getElementById('editDeviceName').focus(), 100);
@@ -3866,6 +3890,7 @@ async function saveEditingDevice() {
   const room    = document.getElementById('editDeviceRoom').value.trim();
   const tid     = document.getElementById('editDeviceTuyaId').value.trim() || null;
   const channel = document.getElementById('editDeviceTuyaSwitchCode').value || 'switch_1';
+  const irHub   = document.getElementById('editDeviceIrParentId').value.trim() || null;
   const hidden  = document.getElementById('editDeviceHiddenInMap').checked;
   if (!name || !room) { showToast('Preencha nome e cômodo', 'error'); return; }
 
@@ -3873,6 +3898,7 @@ async function saveEditingDevice() {
     name, room,
     tuya_device_id:   tid,
     tuya_switch_code: channel,
+    ir_parent_id:     irHub,
     hidden_in_map:    hidden,
   }).eq('id', editingDeviceId);
   if (error) { showToast('Erro ao salvar: ' + error.message, 'error'); return; }
@@ -3882,6 +3908,7 @@ async function saveEditingDevice() {
     d.name = name; d.room = room;
     d.tuya_device_id = tid;
     d.tuya_switch_code = channel;
+    d.ir_parent_id = irHub;
     d.hidden_in_map = hidden;
   }
   updateStats(); renderDevices();
@@ -4005,10 +4032,12 @@ function renderTuyaSyncPlan(tuyaDevices) {
       action,
       selected: action === 'create',   // criação vem marcada; update o usuário decide
       proposed: {
-        name:        t._proposedName,
-        room:        t.room,
-        tuya_id:     t.tuya_id,
-        switch_code: t.switch_code,
+        name:          t._proposedName,
+        room:          t.room,
+        tuya_id:       t.tuya_id,
+        switch_code:   t.switch_code,
+        ir_parent_id:  t.ir_parent_id || null,       // hub IR, quando aplicável
+        ir_device_type: t.ir_device_type || null,    // ac | tv | fan | other
       },
     };
   });
@@ -4083,13 +4112,16 @@ function syncRowHTML(p) {
   const channelBadge = p.proposed.switch_code && p.proposed.switch_code !== 'switch_1'
     ? ` <small style="color:var(--text2)">[${escapeHtml(p.proposed.switch_code)}]</small>`
     : '';
+  const irBadge = p.proposed.ir_parent_id
+    ? ` <small style="background:#fff3cd;color:#8a6d00;padding:1px 6px;border-radius:6px;font-weight:600">📡 IR${p.proposed.ir_device_type ? ' · ' + p.proposed.ir_device_type.toUpperCase() : ''}</small>`
+    : '';
   return `
     <div class="sync-row">
       <input type="checkbox" ${p.selected ? 'checked' : ''}
              ${disabled ? 'disabled' : ''}
              onchange="tuyaSyncPlan[${idx}].selected=this.checked" />
       <div class="sync-cell-from">
-        <div><b>${escapeHtml(p.tuya._displayName || p.tuya.name)}</b>${channelBadge} ${p.tuya.online ? '' : '<small style="color:var(--orange)">offline</small>'}</div>
+        <div><b>${escapeHtml(p.tuya._displayName || p.tuya.name)}</b>${channelBadge}${irBadge} ${p.tuya.online ? '' : '<small style="color:var(--orange)">offline</small>'}</div>
         <small style="color:var(--text2)">cômodo: ${escapeHtml(p.tuya.room)} · ${escapeHtml(p.tuya.tuya_id)}</small>
         ${p.match ? `<div style="font-size:11px;color:var(--text2);margin-top:2px">→ hoje: ${matchInfo}</div>` : ''}
       </div>
@@ -4115,21 +4147,21 @@ async function applyTuyaSync() {
     if (!p.selected || p.action === 'ok') continue;
 
     try {
+      // IR devices vêm da descoberta com ir_parent_id anotado.
+      const irParent = p.proposed.ir_parent_id || p.tuya?.ir_parent_id || null;
+
       if (p.action === 'update' && p.match) {
-        const { error } = await db.from('devices').update({
+        const patch = {
           name:             p.proposed.name,
           room:             p.proposed.room,
           tuya_device_id:   p.proposed.tuya_id,
           tuya_switch_code: p.proposed.switch_code || 'switch_1',
-        }).eq('id', p.match.id);
+          ir_parent_id:     irParent,
+        };
+        const { error } = await db.from('devices').update(patch).eq('id', p.match.id);
         if (error) throw error;
         const local = allDevices.find(x => x.id === p.match.id);
-        if (local) Object.assign(local, {
-          name:             p.proposed.name,
-          room:             p.proposed.room,
-          tuya_device_id:   p.proposed.tuya_id,
-          tuya_switch_code: p.proposed.switch_code || 'switch_1',
-        });
+        if (local) Object.assign(local, patch);
         updated++;
       } else if (p.action === 'create') {
         const type = guessTypeFromTuya(p.tuya);
@@ -4139,6 +4171,7 @@ async function applyTuyaSync() {
           type,
           tuya_device_id:   p.proposed.tuya_id,
           tuya_switch_code: p.proposed.switch_code || 'switch_1',
+          ir_parent_id:     irParent,
           status:           false,
         }).select().single();
         if (error) throw error;
@@ -4165,6 +4198,12 @@ async function applyTuyaSync() {
 function guessTypeFromTuya(t) {
   const name = (t.name || '').toLowerCase();
   const cat  = (t.category || '').toLowerCase();
+  // Hint vindo da descoberta IR (tuya-control list_all_devices).
+  if (t.ir_device_type === 'ac')  return 'ac';
+  if (t.ir_device_type === 'tv')  return 'tv';
+  if (t.ir_device_type === 'fan') return 'other';
+  if (cat === 'infrared_ac')      return 'ac';
+  if (cat === 'infrared_tv')      return 'tv';
   if (cat === 'kg' || cat === 'dj' || cat === 'dd' || cat === 'xdd'
       || /luz|l[aâ]mpada|lamp|light|arandela|spot|pendente|cabeceira/.test(name))
     return 'light';
