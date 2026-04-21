@@ -1435,6 +1435,23 @@
         <option value="Garagem"></option>
       </datalist>
     </div>
+    <div class="form-row">
+      <label>Tuya Device ID <small style="color:var(--text2)">(opcional)</small></label>
+      <input type="text" id="newTuyaId" placeholder="Ex: bfxxxxxxxxxxxxxxxxxx" />
+    </div>
+    <div class="form-row">
+      <label>Canal Tuya <small style="color:var(--text2)">(p/ interruptor multi-tecla)</small></label>
+      <select id="newTuyaChannel">
+        <option value="switch_1">switch_1 (ex: 1 / padrão)</option>
+        <option value="switch_2">switch_2 (ex: 2)</option>
+        <option value="switch_3">switch_3 (ex: 3)</option>
+        <option value="switch_4">switch_4 (ex: 4)</option>
+        <option value="switch_5">switch_5 (ex: 5)</option>
+        <option value="switch_6">switch_6 (ex: 6)</option>
+        <option value="switch_led">switch_led (lâmpada/LED)</option>
+        <option value="switch">switch (genérico)</option>
+      </select>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="saveDevice()">Salvar</button>
@@ -1567,6 +1584,19 @@
     <div class="form-row">
       <label>Tuya Device ID <small style="color:var(--text2)">(opcional)</small></label>
       <input type="text" id="editDeviceTuyaId" placeholder="bf... (aparece no SmartLife)" />
+    </div>
+    <div class="form-row">
+      <label>Canal Tuya <small style="color:var(--text2)">(p/ interruptor multi-tecla)</small></label>
+      <select id="editDeviceTuyaChannel">
+        <option value="switch_1">switch_1 (ex: 1 / padrão)</option>
+        <option value="switch_2">switch_2 (ex: 2)</option>
+        <option value="switch_3">switch_3 (ex: 3)</option>
+        <option value="switch_4">switch_4 (ex: 4)</option>
+        <option value="switch_5">switch_5 (ex: 5)</option>
+        <option value="switch_6">switch_6 (ex: 6)</option>
+        <option value="switch_led">switch_led (lâmpada/LED)</option>
+        <option value="switch">switch (genérico)</option>
+      </select>
     </div>
     <div class="modal-actions" style="justify-content:space-between">
       <button class="btn btn-ghost" style="color:var(--red)"
@@ -1892,7 +1922,12 @@ async function updateDevice(id, fields, opts = {}) {
       const resp = await fetch(TUYA_EDGE_FN, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
-        body: JSON.stringify({ action: 'control', device_id: device.tuya_device_id, value: fields.status }),
+        body: JSON.stringify({
+          action:    'control',
+          device_id: device.tuya_device_id,
+          channel:   device.tuya_channel || 'switch_1',
+          value:     fields.status,
+        }),
       });
       const result = await resp.json();
       if (!result.success) {
@@ -2713,9 +2748,10 @@ function openEditDeviceModal(id) {
   const d = allDevices.find(x => x.id === id);
   if (!d) return;
   editingDeviceId = id;
-  document.getElementById('editDeviceName').value    = d.name || '';
-  document.getElementById('editDeviceRoom').value    = d.room || '';
-  document.getElementById('editDeviceTuyaId').value  = d.tuya_device_id || '';
+  document.getElementById('editDeviceName').value        = d.name || '';
+  document.getElementById('editDeviceRoom').value        = d.room || '';
+  document.getElementById('editDeviceTuyaId').value      = d.tuya_device_id || '';
+  document.getElementById('editDeviceTuyaChannel').value = d.tuya_channel || 'switch_1';
   document.getElementById('editDeviceModalOverlay').classList.add('open');
   setTimeout(() => document.getElementById('editDeviceName').focus(), 100);
 }
@@ -2727,17 +2763,19 @@ function closeEditDeviceModal() {
 
 async function saveEditingDevice() {
   if (!editingDeviceId) return;
-  const name = document.getElementById('editDeviceName').value.trim();
-  const room = document.getElementById('editDeviceRoom').value.trim();
-  const tid  = document.getElementById('editDeviceTuyaId').value.trim() || null;
+  const name    = document.getElementById('editDeviceName').value.trim();
+  const room    = document.getElementById('editDeviceRoom').value.trim();
+  const tid     = document.getElementById('editDeviceTuyaId').value.trim() || null;
+  const channel = document.getElementById('editDeviceTuyaChannel').value || 'switch_1';
   if (!name || !room) { showToast('Preencha nome e cômodo', 'error'); return; }
 
   const { error } = await db.from('devices')
-    .update({ name, room, tuya_device_id: tid }).eq('id', editingDeviceId);
+    .update({ name, room, tuya_device_id: tid, tuya_channel: channel })
+    .eq('id', editingDeviceId);
   if (error) { showToast('Erro ao salvar: ' + error.message, 'error'); return; }
 
   const d = allDevices.find(x => x.id === editingDeviceId);
-  if (d) { d.name = name; d.room = room; d.tuya_device_id = tid; }
+  if (d) { d.name = name; d.room = room; d.tuya_device_id = tid; d.tuya_channel = channel; }
   updateStats(); renderDevices();
   closeEditDeviceModal();
   showToast(`✏️ ${name} atualizado`, 'success');
@@ -2995,6 +3033,8 @@ function guessTypeFromTuya(t) {
 function openModal(room = '') {
   document.getElementById('newRoom').value = room;
   document.getElementById('newName').value = '';
+  document.getElementById('newTuyaId').value = '';
+  document.getElementById('newTuyaChannel').value = 'switch_1';
   document.getElementById('modalOverlay').classList.add('open');
   setTimeout(() => document.getElementById('newName').focus(), 100);
 }
@@ -3004,13 +3044,16 @@ function closeModal() {
 }
 
 async function saveDevice() {
-  const name = document.getElementById('newName').value.trim();
-  const type = document.getElementById('newType').value;
-  const room = document.getElementById('newRoom').value.trim();
+  const name        = document.getElementById('newName').value.trim();
+  const type        = document.getElementById('newType').value;
+  const room        = document.getElementById('newRoom').value.trim();
+  const tuyaId      = document.getElementById('newTuyaId').value.trim() || null;
+  const tuyaChannel = document.getElementById('newTuyaChannel').value || 'switch_1';
 
   if (!name || !room) { showToast('Preencha nome e cômodo', 'error'); return; }
 
-  const { data, error } = await db.from('devices').insert({ name, type, room }).select().single();
+  const payload = { name, type, room, tuya_device_id: tuyaId, tuya_channel: tuyaChannel };
+  const { data, error } = await db.from('devices').insert(payload).select().single();
   if (error) { showToast('Erro ao salvar dispositivo', 'error'); return; }
 
   allDevices.push(data);
