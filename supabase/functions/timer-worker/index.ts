@@ -132,9 +132,10 @@ Deno.serve(async (req) => {
               "apikey":        SERVICE_AUTH_KEY,
             },
             body: JSON.stringify({
-              action: "control",
-              device_id: device.tuya_device_id,
-              value: newStatus,
+              action:      "control",
+              device_id:   device.tuya_device_id,
+              switch_code: device.tuya_switch_code || "switch_1",
+              value:       newStatus,
             }),
           });
         } catch (e) {

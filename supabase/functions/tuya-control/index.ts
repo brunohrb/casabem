@@ -134,7 +134,7 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { action, device_id, value, channel } = body;
+    const { action, device_id, value, switch_code } = body;
 
     // action: "control" | "status" | "list_devices"
     const token = await getTuyaToken();
@@ -155,14 +155,13 @@ serve(async (req) => {
 
     if (action === "control") {
       if (!device_id) throw new Error("device_id required");
-      // value: true/false for switch, or { code, value } for custom command.
-      // channel: optional DP code (e.g. "switch_1", "switch_2"...) for
-      // multi-gang switches. Defaults to "switch_1".
-      const switchCode = typeof channel === "string" && channel.trim()
-        ? channel.trim()
-        : "switch_1";
+      // value:
+      //   - boolean         → usa `switch_code` do body (default 'switch_1')
+      //   - { code, value } → comando custom (permite brightness, mode, etc.)
+      //   - [ {code,value} ]→ lista de comandos
+      const code = switch_code || "switch_1";
       const commands = typeof value === "boolean"
-        ? [{ code: switchCode, value }]
+        ? [{ code, value }]
         : Array.isArray(value) ? value : [value];
 
       const result = await tuyaRequest(

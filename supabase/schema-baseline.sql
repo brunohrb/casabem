@@ -21,8 +21,6 @@ CREATE TABLE IF NOT EXISTS devices (
   channel       INTEGER DEFAULT 1,
   -- Tuya IoT (ID do dispositivo no app Smart Life / Tuya)
   tuya_device_id TEXT    DEFAULT NULL,
-  -- Canal (DP code) p/ interruptores multi-tecla: switch_1, switch_2, ...
-  tuya_channel   TEXT    DEFAULT 'switch_1',
   -- Controle
   last_changed  TEXT    DEFAULT 'dashboard',
   created_at    TIMESTAMPTZ DEFAULT NOW(),
@@ -31,7 +29,6 @@ CREATE TABLE IF NOT EXISTS devices (
 
 -- Adiciona coluna tuya_device_id em tabela existente (se já criada)
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS tuya_device_id TEXT DEFAULT NULL;
-ALTER TABLE devices ADD COLUMN IF NOT EXISTS tuya_channel   TEXT DEFAULT 'switch_1';
 
 -- Tabela de log de todos os comandos
 CREATE TABLE IF NOT EXISTS commands_log (
