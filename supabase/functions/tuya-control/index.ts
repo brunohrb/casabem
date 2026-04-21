@@ -175,29 +175,116 @@ serve(async (req) => {
       // id do "controle remoto" pareado). Diferencia AC de
       // genérico (TV) pelo campo opcional body.device_type.
       if (ir_parent_id) {
-        const deviceType = body.device_type || "tv";    // "ac" | "tv" | "other"
+        // Tuya tem VÁRIOS endpoints IR dependendo da versão/região e
+        // de qual API o projeto subscreveu. Tentamos em ordem até um
+        // devolver success:true. Retornamos attempts[] pro frontend
+        // conseguir debugar se nenhum funcionar.
+        const deviceType = body.device_type || "tv";
         const on = value === true || value === 1 || value === "1";
+        const keyName = body.ir_key ?? "Power";
 
-        let path: string;
-        let reqBody: object | undefined;
+        type Attempt = {
+          label:   string;
+          method:  string;
+          path:    string;
+          body?:   object;
+          resp?:   any;
+          error?:  string;
+        };
+        const attempts: Attempt[] = [];
 
         if (deviceType === "ac") {
-          // AC: /air-conditioners/{remote_id}/command com {code, value}
-          // code: "power" (0/1), "M" (mode), "T" (temp), "F" (fan)
-          const acCode  = body.ir_code  ?? "power";
-          const acValue = body.ir_value ?? (on ? 1 : 0);
-          path = `/v2.0/infrareds/${ir_parent_id}/air-conditioners/${device_id}/command`;
-          reqBody = { code: acCode, value: acValue };
+          // AC Standard Command — Tuya docs oficiais
+          attempts.push({
+            label: "v2 air-conditioners/command",
+            method: "POST",
+            path: `/v2.0/infrareds/${ir_parent_id}/air-conditioners/${device_id}/command`,
+            body: { code: body.ir_code ?? "power", value: body.ir_value ?? (on ? 1 : 0) },
+          });
+          // Fallback v1
+          attempts.push({
+            label: "v1 air-conditioners/command",
+            method: "POST",
+            path: `/v1.0/infrareds/${ir_parent_id}/air-conditioners/${device_id}/command`,
+            body: { code: body.ir_code ?? "power", value: body.ir_value ?? (on ? 1 : 0) },
+          });
+          // Alguns projetos usam send-command com string
+          attempts.push({
+            label: "v1 air-conditioners/send-command",
+            method: "POST",
+            path: `/v1.0/infrareds/${ir_parent_id}/air-conditioners/${device_id}/send-command`,
+            body: { code: body.ir_code ?? "power", value: String(body.ir_value ?? (on ? 1 : 0)) },
+          });
         } else {
-          // Genérico (TV, ventilador, som etc.): remotes/{remote_id}/keys/{key_id}
-          // A chave padrão pra power é "Power" na biblioteca Tuya.
-          const keyId = body.ir_key ?? "Power";
-          path = `/v2.0/infrareds/${ir_parent_id}/remotes/${device_id}/keys/${encodeURIComponent(keyId)}`;
-          reqBody = undefined;   // endpoint não recebe body
+          // Genérico (TV, fan, etc.) — Tuya docs oficiais
+          //
+          // Tem que TENTAR em ordem porque cada versão da API aceita
+          // um formato diferente.
+          //
+          // 1) Send Standard Command (novo, v2.0):
+          attempts.push({
+            label: "v2 remotes/command (standard)",
+            method: "POST",
+            path: `/v2.0/infrareds/${ir_parent_id}/remotes/${device_id}/command`,
+            body: { code: keyName.toLowerCase(), value: on ? 1 : 0 },
+          });
+          // 2) Send Key Command — "raw" (v2.0):
+          attempts.push({
+            label: "v2 remotes/raw/command",
+            method: "POST",
+            path: `/v2.0/infrareds/${ir_parent_id}/remotes/${device_id}/raw/command`,
+            body: { category_id: 2, key: keyName, key_id: 1 },
+          });
+          // 3) Legacy send-keys (v1.0) — body simples, funciona em conta antiga:
+          attempts.push({
+            label: "v1 remotes/send-keys",
+            method: "POST",
+            path: `/v1.0/infrareds/${ir_parent_id}/remotes/${device_id}/send-keys`,
+            body: { key: keyName },
+          });
+          // 4) Endpoint /keys/{key_id} sem body (tentativa anterior):
+          attempts.push({
+            label: "v2 remotes/keys/{key}",
+            method: "POST",
+            path: `/v2.0/infrareds/${ir_parent_id}/remotes/${device_id}/keys/${encodeURIComponent(keyName)}`,
+            body: undefined,
+          });
         }
 
-        const result = await tuyaRequest("POST", path, token, reqBody);
-        return new Response(JSON.stringify(result), { headers: corsHeaders });
+        let winner = "";
+        let finalResp: any = null;
+        for (const a of attempts) {
+          try {
+            a.resp = await tuyaRequest(a.method, a.path, token, a.body);
+            if (a.resp?.success) {
+              winner = a.label;
+              finalResp = a.resp;
+              break;
+            }
+          } catch (e) {
+            a.error = String(e);
+          }
+        }
+
+        return new Response(
+          JSON.stringify({
+            success:  !!winner,
+            winner:   winner || null,
+            result:   finalResp?.result ?? null,
+            msg:      finalResp?.msg ?? (attempts.find(a => a.resp?.msg)?.resp?.msg ?? null),
+            code:     finalResp?.code ?? (attempts.find(a => a.resp?.code)?.resp?.code ?? null),
+            attempts: attempts.map(a => ({
+              label:   a.label,
+              path:    a.path,
+              sent:    a.body ?? null,
+              success: a.resp?.success ?? null,
+              code:    a.resp?.code ?? null,
+              msg:     a.resp?.msg ?? null,
+              error:   a.error ?? null,
+            })),
+          }),
+          { headers: corsHeaders },
+        );
       }
 
       // ── Dispositivo direto (relé, tomada, lâmpada Wi-Fi) ──────────

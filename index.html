@@ -2663,10 +2663,22 @@ async function updateDevice(id, fields, opts = {}) {
         body: JSON.stringify(body),
       });
       const result = await resp.json();
-      if (!result.success) {
+      if (result.success) {
+        // Comando IR tem múltiplas tentativas; feedback mostra qual venceu.
+        if (result.winner) console.log('[IR]', device.name, '→', result.winner);
+      } else {
         console.warn('Tuya control failed:', result);
-        const detail = result?.msg || result?.error || '';
-        showToast(`${device.name}: erro Tuya ${detail ? '· ' + detail : '⚠️'}`, 'error');
+        // IR: result.attempts[] detalha cada endpoint testado.
+        if (Array.isArray(result.attempts) && result.attempts.length) {
+          const last = result.attempts[result.attempts.length - 1];
+          const detail = last?.msg || last?.error || result?.msg || 'sem detalhe';
+          showToast(`${device.name}: IR falhou (todos os endpoints) · ${detail}`, 'error');
+          // Dump completo no console pra debug.
+          console.warn('[IR attempts]', result.attempts);
+        } else {
+          const detail = result?.msg || result?.error || '';
+          showToast(`${device.name}: erro Tuya ${detail ? '· ' + detail : '⚠️'}`, 'error');
+        }
       }
     } catch (e) {
       console.warn('Tuya fetch error:', e);
@@ -4334,6 +4346,8 @@ async function runIrDiscover() {
     body.innerHTML = `
       <div style="margin-bottom:10px;font-size:12px;color:var(--text2)">
         <b>${irDiscoverRemotes.length}</b> aparelho(s) pareado(s) no hub.
+        Clique em <b>🧪 Testar</b> pra disparar o comando Power — é a forma
+        mais rápida de descobrir se o IR funciona.
       </div>
       ${irDiscoverRemotes.map((rr, i) => {
         const already = have.has(rr.remote_id);
@@ -4345,11 +4359,16 @@ async function runIrDiscover() {
               <div style="font-size:11px;color:var(--text2)">
                 ${typeLabels[rr.device_type] || 'IR'} · <code style="font-size:10px">${escapeHtml(rr.remote_id)}</code>
               </div>
+              <div id="irTestResult_${i}" style="font-size:11px;margin-top:4px"></div>
             </div>
-            ${already
-              ? `<span style="color:var(--green);font-size:12px;font-weight:600">✓ já cadastrado</span>`
-              : `<button class="btn btn-primary" style="padding:7px 14px;font-size:12px"
-                   onclick="createFromIrRemote(${i})">➕ Criar</button>`}
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <button class="btn btn-ghost" style="padding:5px 10px;font-size:11px"
+                      onclick="testIrRemote(${i})">🧪 Testar</button>
+              ${already
+                ? `<span style="color:var(--green);font-size:11px;font-weight:600;text-align:center">✓ cadastrado</span>`
+                : `<button class="btn btn-primary" style="padding:5px 10px;font-size:11px"
+                     onclick="createFromIrRemote(${i})">➕ Criar</button>`}
+            </div>
           </div>`;
       }).join('')}`;
   } catch (e) {
@@ -4357,6 +4376,54 @@ async function runIrDiscover() {
       <div style="padding:14px;background:#fdecea;border:1px solid #f5c2bd;border-radius:8px;color:var(--red);font-size:13px">
         <b>Erro ao consultar:</b> ${escapeHtml(String(e.message || e))}
       </div>`;
+  }
+}
+
+async function testIrRemote(idx) {
+  const rr = irDiscoverRemotes[idx];
+  if (!rr) return;
+  const out = document.getElementById(`irTestResult_${idx}`);
+  if (out) out.innerHTML = `<span style="color:var(--text2)">⏳ testando…</span>`;
+
+  try {
+    const r = await fetch(TUYA_EDGE_FN, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'apikey':        SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+      },
+      body: JSON.stringify({
+        action:        'control',
+        device_id:     rr.remote_id,
+        ir_parent_id:  irDiscoverHub,
+        device_type:   rr.device_type,
+        value:         true,                // Power = liga
+      }),
+    });
+    const json = await r.json();
+
+    if (json.success) {
+      if (out) out.innerHTML =
+        `<span style="color:var(--green)">✅ comando aceito via <b>${escapeHtml(json.winner || '?')}</b> — olha o aparelho</span>`;
+    } else {
+      const attempts = Array.isArray(json.attempts) ? json.attempts : [];
+      const lines = attempts.map(a => {
+        const status = a.success === true ? '✅'
+                    : a.success === false ? '❌'
+                    : '⚠️';
+        const info = a.msg || a.error || `code=${a.code ?? '?'}`;
+        return `${status} ${escapeHtml(a.label)} · ${escapeHtml(String(info))}`;
+      }).join('<br>');
+      if (out) out.innerHTML =
+        `<div style="color:var(--red);font-size:10px;line-height:1.5;padding:6px;background:#fdecea;border-radius:6px">
+          <b>Nenhum endpoint funcionou:</b><br>${lines || json.msg || 'sem detalhe'}
+        </div>`;
+      console.warn('[IR test]', json);
+    }
+  } catch (e) {
+    if (out) out.innerHTML =
+      `<span style="color:var(--red)">❌ erro rede: ${escapeHtml(String(e.message || e))}</span>`;
   }
 }
 
