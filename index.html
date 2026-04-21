@@ -2833,17 +2833,44 @@ function closeTuyaSyncModal() {
 }
 
 function renderTuyaSyncPlan(tuyaDevices) {
-  // Casa cada device Tuya com um device do casa BEM (por tuya_device_id).
-  const byTuyaId = new Map();
+  // Casa cada device Tuya com um device do casa BEM.
+  // Chave: tuya_device_id + tuya_switch_code (permite multi-tecla)
+  const keyOf = (tuyaId, code) => `${tuyaId}::${code || 'switch_1'}`;
+  const byKey = new Map();
   for (const d of allDevices) {
-    if (d.tuya_device_id) byTuyaId.set(d.tuya_device_id, d);
+    if (d.tuya_device_id) byKey.set(keyOf(d.tuya_device_id, d.tuya_switch_code), d);
   }
 
-  tuyaSyncPlan = tuyaDevices.map(t => {
-    const match = byTuyaId.get(t.tuya_id);
+  // Expande cada device Tuya em 1 entrada (se 0–1 canal) ou N entradas
+  // (uma por tecla switch_1, switch_2, …) quando é interruptor multi-tecla.
+  const expanded = [];
+  for (const t of tuyaDevices) {
+    const channels = Array.isArray(t.channels) ? t.channels : [];
+    if (channels.length >= 2) {
+      channels.forEach((code, i) => {
+        const tecla = code === 'switch_led' ? 'LED' : code.replace('switch_', '');
+        expanded.push({
+          ...t,
+          switch_code: code,
+          _displayName: `${t.name} · Tecla ${tecla}`,
+          _proposedName: channels.length > 1 ? `${t.name} - Tecla ${tecla}` : t.name,
+        });
+      });
+    } else {
+      expanded.push({
+        ...t,
+        switch_code: channels[0] || 'switch_1',
+        _displayName: t.name,
+        _proposedName: t.name,
+      });
+    }
+  }
+
+  tuyaSyncPlan = expanded.map(t => {
+    const match = byKey.get(keyOf(t.tuya_id, t.switch_code));
     let action, diff = false;
     if (match) {
-      diff = (match.name !== t.name) || (match.room !== t.room);
+      diff = (match.name !== t._proposedName) || (match.room !== t.room);
       action = diff ? 'update' : 'ok';
     } else {
       action = 'create';
@@ -2852,18 +2879,21 @@ function renderTuyaSyncPlan(tuyaDevices) {
       tuya: t,
       match,
       action,
-      selected: action !== 'ok',
+      selected: action === 'create',   // criação vem marcada; update o usuário decide
       proposed: {
-        name: t.name,
-        room: t.room,
-        tuya_id: t.tuya_id,
+        name:        t._proposedName,
+        room:        t.room,
+        tuya_id:     t.tuya_id,
+        switch_code: t.switch_code,
       },
     };
   });
 
-  // Dispositivos órfãos no Supabase (sem par no Tuya)
-  const tuyaIds = new Set(tuyaDevices.map(t => t.tuya_id));
-  const orphans = allDevices.filter(d => d.tuya_device_id && !tuyaIds.has(d.tuya_device_id));
+  // Órfãos: device local cuja chave (tuya_id + switch_code) não apareceu no Tuya.
+  const expandedKeys = new Set(expanded.map(t => keyOf(t.tuya_id, t.switch_code)));
+  const orphans = allDevices.filter(d =>
+    d.tuya_device_id && !expandedKeys.has(keyOf(d.tuya_device_id, d.tuya_switch_code))
+  );
 
   const body = document.getElementById('tuyaSyncBody');
   const groups = {
@@ -2926,13 +2956,16 @@ function syncRowHTML(p) {
   const matchInfo = p.match
     ? `<b>${escapeHtml(p.match.name)}</b> · ${escapeHtml(p.match.room)}`
     : `<span style="color:var(--text2)"><i>(novo)</i></span>`;
+  const channelBadge = p.proposed.switch_code && p.proposed.switch_code !== 'switch_1'
+    ? ` <small style="color:var(--text2)">[${escapeHtml(p.proposed.switch_code)}]</small>`
+    : '';
   return `
     <div class="sync-row">
       <input type="checkbox" ${p.selected ? 'checked' : ''}
              ${disabled ? 'disabled' : ''}
              onchange="tuyaSyncPlan[${idx}].selected=this.checked" />
       <div class="sync-cell-from">
-        <div><b>${escapeHtml(p.tuya.name)}</b> ${p.tuya.online ? '' : '<small style="color:var(--orange)">offline</small>'}</div>
+        <div><b>${escapeHtml(p.tuya._displayName || p.tuya.name)}</b>${channelBadge} ${p.tuya.online ? '' : '<small style="color:var(--orange)">offline</small>'}</div>
         <small style="color:var(--text2)">cômodo: ${escapeHtml(p.tuya.room)} · ${escapeHtml(p.tuya.tuya_id)}</small>
         ${p.match ? `<div style="font-size:11px;color:var(--text2);margin-top:2px">→ hoje: ${matchInfo}</div>` : ''}
       </div>
@@ -2960,24 +2993,29 @@ async function applyTuyaSync() {
     try {
       if (p.action === 'update' && p.match) {
         const { error } = await db.from('devices').update({
-          name: p.proposed.name,
-          room: p.proposed.room,
-          tuya_device_id: p.proposed.tuya_id,
+          name:             p.proposed.name,
+          room:             p.proposed.room,
+          tuya_device_id:   p.proposed.tuya_id,
+          tuya_switch_code: p.proposed.switch_code || 'switch_1',
         }).eq('id', p.match.id);
         if (error) throw error;
         const local = allDevices.find(x => x.id === p.match.id);
         if (local) Object.assign(local, {
-          name: p.proposed.name, room: p.proposed.room, tuya_device_id: p.proposed.tuya_id,
+          name:             p.proposed.name,
+          room:             p.proposed.room,
+          tuya_device_id:   p.proposed.tuya_id,
+          tuya_switch_code: p.proposed.switch_code || 'switch_1',
         });
         updated++;
       } else if (p.action === 'create') {
         const type = guessTypeFromTuya(p.tuya);
         const { data, error } = await db.from('devices').insert({
-          name: p.proposed.name,
-          room: p.proposed.room,
+          name:             p.proposed.name,
+          room:             p.proposed.room,
           type,
-          tuya_device_id: p.proposed.tuya_id,
-          status: false,
+          tuya_device_id:   p.proposed.tuya_id,
+          tuya_switch_code: p.proposed.switch_code || 'switch_1',
+          status:           false,
         }).select().single();
         if (error) throw error;
         if (data) allDevices.push(data);
