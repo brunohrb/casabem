@@ -220,30 +220,77 @@ serve(async (req) => {
     }
 
     if (action === "ir_list_remotes") {
-      // Dado o tuya_device_id do hub IR, lista os aparelhos ("remotes")
-      // pareados nele. Cada resultado vem com o remote_id (= tuya_device_id
-      // que o frontend deve cadastrar no casa BEM), nome e tipo.
+      // Dado o tuya_device_id do hub IR, tenta descobrir os aparelhos
+      // pareados. A Tuya tem VÁRIOS endpoints que fazem isso dependendo
+      // de versão da API, região e se o projeto subscreveu "Universal IR
+      // Remote Control". Tentamos todos e devolvemos o que conseguiu +
+      // diagnóstico bruto pra debug.
       const hub = body.ir_parent_id || body.hub_id || device_id;
       if (!hub) throw new Error("ir_parent_id (hub) required");
-      const resp: any = await tuyaRequest(
-        "GET", `/v2.0/infrareds/${hub}/remotes`, token,
-      );
-      const remotes = asArray<any>(resp?.result).map((rr: any) => {
-        const cat = String(rr.category_id ?? rr.category ?? "").toLowerCase();
-        let device_type = "other";
-        if (cat === "5" || cat.includes("ac") || cat.includes("air")) device_type = "ac";
-        else if (cat === "1" || cat.includes("tv")) device_type = "tv";
-        else if (cat === "4" || cat.includes("fan")) device_type = "fan";
-        return {
-          remote_id:    rr.remote_id || rr.device_id || rr.id,
-          remote_name:  rr.remote_name || rr.name || "",
-          brand_name:   rr.brand_name || "",
-          category_id:  rr.category_id ?? rr.category ?? null,
-          device_type,
-        };
-      });
+
+      const tries: Array<{ path: string; label: string; resp?: any; error?: string }> = [
+        { path: `/v2.0/infrareds/${hub}/remotes`,             label: "v2.0 infrareds/remotes" },
+        { path: `/v1.0/infrareds/${hub}/remotes`,             label: "v1.0 infrareds/remotes" },
+        { path: `/v2.0/infrareds/${hub}/remote-devices`,      label: "v2.0 infrareds/remote-devices" },
+        { path: `/v1.0/devices/${hub}/sub-devices`,           label: "v1.0 devices/sub-devices" },
+      ];
+
+      // Também puxa info do próprio hub pra diagnóstico (categoria, online).
+      let hubInfo: any = null;
+      try {
+        hubInfo = await tuyaRequest("GET", `/v1.0/devices/${hub}`, token);
+      } catch (e) {
+        hubInfo = { error: String(e) };
+      }
+
+      let remotes: any[] = [];
+      let winner = "";
+      for (const t of tries) {
+        try {
+          t.resp = await tuyaRequest("GET", t.path, token);
+          const list = asArray<any>(t.resp?.result);
+          if (list.length > 0) {
+            remotes = list.map((rr: any) => {
+              const cat = String(rr.category_id ?? rr.category ?? "").toLowerCase();
+              let device_type = "other";
+              if (cat === "5" || cat.includes("ac") || cat.includes("air")) device_type = "ac";
+              else if (cat === "1" || cat.includes("tv"))                    device_type = "tv";
+              else if (cat === "4" || cat.includes("fan"))                   device_type = "fan";
+              return {
+                remote_id:    rr.remote_id || rr.device_id || rr.id || rr.sub_id,
+                remote_name:  rr.remote_name || rr.name || "",
+                brand_name:   rr.brand_name || "",
+                category_id:  rr.category_id ?? rr.category ?? null,
+                device_type,
+              };
+            }).filter((r: any) => r.remote_id);
+            if (remotes.length > 0) {
+              winner = t.label;
+              break;
+            }
+          }
+        } catch (e) {
+          t.error = String(e);
+        }
+      }
+
       return new Response(
-        JSON.stringify({ success: true, hub, remotes, raw: resp }),
+        JSON.stringify({
+          success:   true,
+          hub,
+          remotes,
+          winner:    winner || null,
+          hub_info:  hubInfo,
+          attempts:  tries.map(t => ({
+            label:    t.label,
+            path:     t.path,
+            success:  t.resp?.success ?? null,
+            msg:      t.resp?.msg ?? null,
+            code:     t.resp?.code ?? null,
+            count:    asArray(t.resp?.result).length,
+            error:    t.error ?? null,
+          })),
+        }),
         { headers: corsHeaders },
       );
     }
