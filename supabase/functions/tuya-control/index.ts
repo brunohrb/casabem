@@ -219,6 +219,35 @@ serve(async (req) => {
       return new Response(JSON.stringify(result), { headers: corsHeaders });
     }
 
+    if (action === "ir_list_remotes") {
+      // Dado o tuya_device_id do hub IR, lista os aparelhos ("remotes")
+      // pareados nele. Cada resultado vem com o remote_id (= tuya_device_id
+      // que o frontend deve cadastrar no casa BEM), nome e tipo.
+      const hub = body.ir_parent_id || body.hub_id || device_id;
+      if (!hub) throw new Error("ir_parent_id (hub) required");
+      const resp: any = await tuyaRequest(
+        "GET", `/v2.0/infrareds/${hub}/remotes`, token,
+      );
+      const remotes = asArray<any>(resp?.result).map((rr: any) => {
+        const cat = String(rr.category_id ?? rr.category ?? "").toLowerCase();
+        let device_type = "other";
+        if (cat === "5" || cat.includes("ac") || cat.includes("air")) device_type = "ac";
+        else if (cat === "1" || cat.includes("tv")) device_type = "tv";
+        else if (cat === "4" || cat.includes("fan")) device_type = "fan";
+        return {
+          remote_id:    rr.remote_id || rr.device_id || rr.id,
+          remote_name:  rr.remote_name || rr.name || "",
+          brand_name:   rr.brand_name || "",
+          category_id:  rr.category_id ?? rr.category ?? null,
+          device_type,
+        };
+      });
+      return new Response(
+        JSON.stringify({ success: true, hub, remotes, raw: resp }),
+        { headers: corsHeaders },
+      );
+    }
+
     if (action === "ir_send") {
       // Envio IR custom: usado por futuras funções (aprender/tocar chave
       // específica, mudar temperatura, etc). Body esperado:
