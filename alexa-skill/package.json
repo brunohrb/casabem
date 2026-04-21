@@ -1,0 +1,15 @@
+{
+  "name": "casa-inteligente-bruno",
+  "version": "1.0.0",
+  "description": "Alexa Skill - Casa Inteligente do Bruno",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Sem testes configurados\" && exit 0"
+  },
+  "dependencies": {
+    "ask-sdk-core": "^2.14.0",
+    "ask-sdk-model": "^1.89.0"
+  },
+  "author": "Bruno",
+  "license": "MIT"
+}

@@ -504,6 +504,65 @@
 
     .source-alexa     { background: #e8f0fc; color: var(--accent); }
     .source-dashboard { background: #e8faf0; color: var(--green); }
+    .source-manual    { background: #fff1e0; color: var(--orange); }
+    .source-rule      { background: #f0e8fc; color: var(--purple); }
+
+    /* Tempo ligado + timer ativo por dispositivo */
+    .elapsed {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--text2);
+      margin-top: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .elapsed.long { color: var(--orange); font-weight: 600; }
+    .device-card.on .elapsed { color: var(--green); }
+    .device-card.on .elapsed.long { color: var(--orange); }
+
+    .device-timer {
+      margin-top: 6px;
+      padding: 6px 8px;
+      background: #fff4e0;
+      border: 1px solid #f3d3a0;
+      border-radius: 8px;
+      font-size: 11px;
+      color: var(--orange);
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .device-timer .dt-cancel {
+      background: none; border: none; cursor: pointer;
+      color: var(--red); font-size: 13px; padding: 0;
+    }
+
+    .timer-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text2);
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-top: 6px;
+      font-weight: 600;
+    }
+    .timer-btn:hover { color: var(--orange); border-color: var(--orange); }
+
+    /* Painel de estatísticas de uso */
+    .usage-panel { padding: 10px; }
+    .usage-row {
+      display: flex; justify-content: space-between;
+      padding: 6px 0; border-bottom: 1px dashed var(--border);
+      font-size: 12px;
+    }
+    .usage-row:last-child { border-bottom: none; }
+    .usage-row .u-name { color: var(--text); font-weight: 600; }
+    .usage-row .u-time { color: var(--text2); font-variant-numeric: tabular-nums; }
 
     /* ============================================================
        ADD DEVICE CARD
@@ -1246,6 +1305,9 @@
         <button class="quick-btn" onclick="openModal()">
           <span class="qb-icon">➕</span> Novo Dispositivo
         </button>
+        <button class="quick-btn" onclick="openUsageModal()">
+          <span class="qb-icon">⚡</span> Consumo / Uso
+        </button>
       </div>
     </div>
 
@@ -1397,6 +1459,63 @@
   </div>
 </div>
 
+<!-- ============================================================
+     MODAL - Consumo / Tempo Ligado
+============================================================ -->
+<div class="modal-overlay" id="usageModalOverlay" onclick="if(event.target===this)closeUsageModal()">
+  <div class="modal" style="max-width:520px">
+    <h2>⚡ Consumo &amp; Tempo Ligado</h2>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:14px">
+      Tempo total ligado por aparelho (acumulado desde o cadastro).
+      Inclui acionamentos manuais, pelo app e pela Alexa.
+    </p>
+    <div class="usage-panel" id="usagePanel">
+      <div class="empty-state" style="padding:16px">Carregando…</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeUsageModal()">Fechar</button>
+      <button class="btn btn-primary" onclick="renderUsagePanel()">🔄 Atualizar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     MODAL - Timer Rápido (Desligar em X min)
+============================================================ -->
+<div class="modal-overlay" id="timerModalOverlay" onclick="if(event.target===this)closeTimerModal()">
+  <div class="modal">
+    <h2>⏲️ Desligar automaticamente</h2>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:14px">
+      <span id="timerModalDeviceName">—</span> · agendar o desligamento.
+    </p>
+    <div class="form-row" style="display:grid;grid-template-columns:1fr 110px;gap:8px">
+      <div>
+        <label>Depois de</label>
+        <input type="number" id="timerValue" min="1" value="10" />
+      </div>
+      <div>
+        <label>Unidade</label>
+        <select id="timerUnit">
+          <option value="60">Minutos</option>
+          <option value="1">Segundos</option>
+          <option value="3600">Horas</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <label>Ação</label>
+      <select id="timerAction">
+        <option value="off">Desligar</option>
+        <option value="on">Ligar</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeTimerModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveQuickTimer()">Agendar</button>
+    </div>
+  </div>
+</div>
+
 <!-- TOAST -->
 <div id="toast"></div>
 
@@ -1431,7 +1550,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function loadAll() {
-  await Promise.all([loadDevices(), loadReminders(), loadLog()]);
+  await Promise.all([loadDevices(), loadReminders(), loadLog(), loadPendingTimers()]);
   updateStats();
   renderDevices();
   renderRules();
@@ -1549,8 +1668,16 @@ function deviceCardHTML(d) {
       </div>`;
   }
 
-  const sourceClass = d.last_changed === 'alexa' ? 'source-alexa' : 'source-dashboard';
-  const sourceLabel = d.last_changed === 'alexa' ? '🎙️ Alexa' : '🖥️ Painel';
+  const source = d.last_source || d.last_changed || 'app';
+  const srcMap = {
+    'alexa':        { cls:'source-alexa',     lbl:'🎙️ Alexa' },
+    'dashboard':    { cls:'source-dashboard', lbl:'🖥️ Painel' },
+    'app':          { cls:'source-dashboard', lbl:'🖥️ Painel' },
+    'manual':       { cls:'source-manual',    lbl:'🔘 Interruptor' },
+    'rule':         { cls:'source-rule',      lbl:'🤖 Automação' },
+    'manual_timer': { cls:'source-rule',      lbl:'⏱️ Timer' },
+  };
+  const { cls: sourceClass, lbl: sourceLabel } = srcMap[source] || srcMap['app'];
 
   // Texto informativo conforme o tipo e estado
   let infoText;
@@ -1562,6 +1689,29 @@ function deviceCardHTML(d) {
     else                          infoText = 'Ligado';
   } else {
     infoText = d.type === 'vacuum' ? 'Na base' : 'Desligado';
+  }
+
+  // Tempo ligado (vivo) — só mostra se status=on && on_since
+  let elapsedHtml = '';
+  if (d.status && d.on_since) {
+    const sec = Math.max(0, Math.floor((Date.now() - new Date(d.on_since).getTime()) / 1000));
+    const longCls = sec > 3600 ? ' long' : '';
+    elapsedHtml = `<div class="elapsed${longCls}" data-elapsed-for="${d.id}">⏱️ ligado há ${formatElapsed(sec)}</div>`;
+  } else if (!d.status && d.total_on_time_seconds > 0) {
+    elapsedHtml = `<div class="elapsed" title="Tempo total acumulado ligado">
+      Σ ${formatElapsed(d.total_on_time_seconds)} no total</div>`;
+  }
+
+  // Timer ativo (pending_timers + fallback da regra em memória)
+  const activeTimer = pendingDeviceTimers.get(String(d.id));
+  let timerHtml = '';
+  if (activeTimer) {
+    const left = Math.max(0, Math.ceil((activeTimer.fireAt - Date.now()) / 1000));
+    timerHtml = `
+      <div class="device-timer" data-timer-for="${d.id}">
+        <span>⏲️ ${activeTimer.action === 'off' ? 'Desliga' : 'Liga'} em <span class="dt-left">${formatElapsed(left)}</span></span>
+        <button class="dt-cancel" onclick="cancelDeviceTimer(${activeTimer.id ? `'${activeTimer.id}'` : 'null'}, '${d.id}')" title="Cancelar">✕</button>
+      </div>`;
   }
 
   return `
@@ -1576,12 +1726,30 @@ function deviceCardHTML(d) {
       </div>
       <div class="device-name">${d.name}</div>
       <div class="device-info">${infoText}</div>
+      ${elapsedHtml}
       <span class="source-badge ${sourceClass}">${sourceLabel}</span>
+      ${timerHtml}
+      ${d.status && !activeTimer ? `
+        <button class="timer-btn" onclick="openTimerModal('${d.id}')">⏲️ Desligar em…</button>
+      ` : ''}
       ${extraControls ? `
         <div class="card-controls">${extraControls}</div>
         <button class="expand-btn" onclick="toggleExpand('${d.id}', this)">⚙️ Configurar ▾</button>
       ` : ''}
     </div>`;
+}
+
+function formatElapsed(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  if (sec < 60)   return `${sec}s`;
+  if (sec < 3600) {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return s ? `${m}min ${s}s` : `${m}min`;
+  }
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  return m ? `${h}h ${m}min` : `${h}h`;
 }
 
 function toggleExpand(id, btn) {
@@ -1590,23 +1758,30 @@ function toggleExpand(id, btn) {
   btn.textContent = open ? '⚙️ Fechar ▴' : '⚙️ Configurar ▾';
 }
 
-async function updateDevice(id, fields) {
+async function updateDevice(id, fields, opts = {}) {
   const device = allDevices.find(d => d.id === id);
   if (!device) return;
 
-  fields.last_changed = 'dashboard';
+  const source = opts.source || 'app';          // app | alexa | rule | manual_timer
+  fields.last_source  = source;
+  fields.last_changed = source;                 // mantém compat com esquema antigo
+
+  // on_since, total_on_time_seconds e device_sessions são gerenciados
+  // por triggers no banco — não precisamos mexer aqui.
 
   const { error } = await db.from('devices').update(fields).eq('id', id);
   if (error) { showToast('Erro ao atualizar dispositivo', 'error'); return; }
 
   // Log
-  const changedKeys = Object.keys(fields).filter(k => k !== 'last_changed');
+  const changedKeys = Object.keys(fields).filter(k =>
+    !['last_changed','last_source'].includes(k)
+  );
   const cmdStr = changedKeys.map(k => `${k}=${fields[k]}`).join(', ');
   await db.from('commands_log').insert({
     device_id:   id,
     device_name: device.name,
-    command:     `Dashboard: ${cmdStr}`,
-    source:      'dashboard',
+    command:     `${sourceLabelForLog(source)}: ${cmdStr}`,
+    source:      source,
     success:     true,
   });
 
@@ -1633,8 +1808,8 @@ async function updateDevice(id, fields) {
   updateStats();
   renderDevices();
 
-  const isToggle = 'status' in fields && Object.keys(fields).length <= 2;
-  if (isToggle) {
+  const isToggle = 'status' in fields && changedKeys.length <= 1;
+  if (isToggle && !opts.silent) {
     showToast(`${device.name} ${fields.status ? 'ligado ✅' : 'desligado 🔴'}`, fields.status ? 'success' : 'info');
   }
 
@@ -1643,6 +1818,13 @@ async function updateDevice(id, fields) {
     markTriggerFired(id, fields.status);
     evaluateRules(id, fields.status);
   }
+}
+
+function sourceLabelForLog(src) {
+  return {
+    app: 'Painel', alexa: 'Alexa', manual: 'Interruptor',
+    rule: 'Automação', manual_timer: 'Timer',
+  }[src] || 'Painel';
 }
 
 // ============================================================
@@ -1878,6 +2060,19 @@ async function loadLog() {
   renderLog(data || []);
 }
 
+function sourceLabelIcon(src) {
+  return {
+    alexa:        '🎙️ Alexa',
+    manual:       '🔘 Interruptor',
+    rule:         '🤖 Automação',
+    manual_timer: '⏱️ Timer',
+    'tuya-sync':  '🔘 Interruptor',
+    automacao:    '🤖 Automação',
+    app:          '🖥️ Painel',
+    dashboard:    '🖥️ Painel',
+  }[src] || '🖥️ Painel';
+}
+
 function renderLog(logs) {
   const el = document.getElementById('logList');
   if (logs.length === 0) {
@@ -1888,7 +2083,7 @@ function renderLog(logs) {
     <div class="log-item ${l.source}">
       <div class="log-cmd">${l.command}</div>
       <div class="log-meta">
-        <span>${l.source === 'alexa' ? '🎙️ Alexa' : '🖥️ Painel'}</span>
+        <span>${sourceLabelIcon(l.source)}</span>
         <span>${l.device_name}</span>
         <span>${new Date(l.created_at).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}</span>
       </div>
@@ -2120,12 +2315,24 @@ function cancelRuleTimer(ruleId) {
   const p = pendingRuleTimers.get(ruleId);
   if (p) {
     clearTimeout(p.timeoutId);
+    if (p.persistedId) {
+      db.from('pending_timers')
+        .update({ cancelled_at: new Date().toISOString() })
+        .eq('id', p.persistedId)
+        .then(() => {}, () => {});
+    }
+    // Remove da map de timers por device
+    for (const [devId, t] of pendingDeviceTimers.entries()) {
+      if (t.rule_id === ruleId) pendingDeviceTimers.delete(devId);
+    }
     pendingRuleTimers.delete(ruleId);
   }
 }
 
-// Avalia regras quando um dispositivo muda de estado
-function evaluateRules(deviceId, newStatus) {
+// Avalia regras quando um dispositivo muda de estado.
+// A regra vira uma linha em `pending_timers` — assim sobrevive ao
+// fechamento do app. O timer-worker do backend executa no tempo certo.
+async function evaluateRules(deviceId, newStatus) {
   const rules = loadRules().filter(r =>
     r.enabled && r.trigger_device_id === deviceId
   );
@@ -2135,44 +2342,77 @@ function evaluateRules(deviceId, newStatus) {
       (r.trigger_event === 'on'  && newStatus === true) ||
       (r.trigger_event === 'off' && newStatus === false);
 
-    // Se o dispositivo voltou ao estado oposto, cancela qualquer timer pendente
+    // Se o dispositivo voltou ao estado oposto, cancela timer pendente
     if (!triggerMatches) {
       if (pendingRuleTimers.has(r.id)) {
         cancelRuleTimer(r.id);
-        renderRules();
+        renderRules(); renderDevices();
       }
       continue;
     }
 
     // Reinicia timer (sobrescreve pendente)
     cancelRuleTimer(r.id);
+
     const target = allDevices.find(d => d.id === r.target_device_id);
     if (!target) continue;
 
     const endsAt = Date.now() + r.delay_seconds * 1000;
+    const fireAt = new Date(endsAt).toISOString();
+
+    // 1. Persiste no banco (sobrevive ao fechamento do app)
+    let persistedId = null;
+    try {
+      const { data, error } = await db.from('pending_timers').insert({
+        device_id:   r.target_device_id,
+        device_name: target.name,
+        action:      r.action_event,
+        fire_at:     fireAt,
+        label:       r.name,
+        source:      'rule',
+        rule_id:     r.id,
+      }).select().single();
+      if (!error && data) persistedId = data.id;
+    } catch (e) {
+      console.warn('pending_timers indisponível, caindo pro setTimeout', e);
+    }
+
+    // 2. Fallback em memória (executa mais rápido se o app estiver aberto)
     const timeoutId = setTimeout(async () => {
       pendingRuleTimers.delete(r.id);
-      try {
-        await updateDevice(r.target_device_id, { status: r.action_event === 'on' });
-        showToast(`🤖 "${r.name}" executada`, 'success');
-      } catch (e) {
-        console.warn('Rule fire error', e);
+      // Marca como executado no banco pra não duplicar com o worker
+      if (persistedId) {
+        try {
+          const { data: locked } = await db.from('pending_timers')
+            .update({ executed_at: new Date().toISOString() })
+            .eq('id', persistedId)
+            .is('executed_at', null)
+            .is('cancelled_at', null)
+            .select('id').single();
+          if (!locked) { renderRules(); return; }  // worker já pegou
+        } catch (e) { /* ignora */ }
       }
+      try {
+        await updateDevice(r.target_device_id, { status: r.action_event === 'on' }, { source: 'rule' });
+        showToast(`🤖 "${r.name}" executada`, 'success');
+      } catch (e) { console.warn('Rule fire error', e); }
       renderRules();
     }, r.delay_seconds * 1000);
 
-    pendingRuleTimers.set(r.id, { timeoutId, endsAt });
-    showToast(
-      `⏱️ "${r.name}" em ${formatDelay(r.delay_seconds)}`,
-      'info'
-    );
-    renderRules();
+    pendingRuleTimers.set(r.id, { timeoutId, endsAt, persistedId });
+    pendingDeviceTimers.set(String(r.target_device_id), {
+      id: persistedId, action: r.action_event, fireAt: endsAt, label: r.name, rule_id: r.id,
+    });
+
+    showToast(`⏱️ "${r.name}" em ${formatDelay(r.delay_seconds)}`, 'info');
+    renderRules(); renderDevices();
   }
 }
 
-// Atualiza o countdown visual a cada segundo
+// Tick universal: atualiza countdowns de regras, timers de device
+// e o tempo ligado ("ligado há Xmin") dos cards — tudo sem re-render.
 setInterval(() => {
-  if (pendingRuleTimers.size === 0) return;
+  // Countdowns de regras na sidebar
   for (const [id, p] of pendingRuleTimers.entries()) {
     const el = document.getElementById('rc-' + id);
     if (el) {
@@ -2180,6 +2420,24 @@ setInterval(() => {
       el.textContent = `⏱️ Disparando em ${left}s`;
     }
   }
+  // Countdowns de timers nos cards
+  for (const [deviceId, t] of pendingDeviceTimers.entries()) {
+    const card = document.querySelector(`[data-timer-for="${deviceId}"] .dt-left`);
+    if (card) {
+      const left = Math.max(0, Math.ceil((t.fireAt - Date.now()) / 1000));
+      card.textContent = formatElapsed(left);
+    }
+  }
+  // Tempo ligado nos cards
+  document.querySelectorAll('[data-elapsed-for]').forEach(el => {
+    const id = el.getAttribute('data-elapsed-for');
+    const d  = allDevices.find(x => String(x.id) === String(id));
+    if (d && d.status && d.on_since) {
+      const sec = Math.floor((Date.now() - new Date(d.on_since).getTime()) / 1000);
+      el.textContent = `⏱️ ligado há ${formatElapsed(sec)}`;
+      if (sec > 3600) el.classList.add('long');
+    }
+  });
 }, 1000);
 
 // Dedupe para não disparar 2x quando o painel atualiza e a realtime
@@ -2193,6 +2451,156 @@ function wasRecentlyFired(deviceId, status) {
   const key = `${deviceId}:${status ? 1 : 0}`;
   const ts = recentlyFiredTriggers.get(key);
   return ts && (Date.now() - ts) < 3000;
+}
+
+// ============================================================
+// TIMERS PERSISTIDOS (pending_timers)
+// ------------------------------------------------------------
+// Ao contrário do setTimeout em memória, estes vivem no Supabase.
+// O Edge Function `timer-worker` os dispara (a cada 10s via cron).
+// A tabela pending_timers é a fonte da verdade; o frontend só
+// exibe e permite cancelar.
+// ============================================================
+const pendingDeviceTimers = new Map();  // device_id (string) -> { id, action, fireAt, label }
+
+async function loadPendingTimers() {
+  try {
+    const { data, error } = await db
+      .from('pending_timers')
+      .select('*')
+      .is('executed_at', null)
+      .is('cancelled_at', null)
+      .order('fire_at', { ascending: true });
+    if (error) throw error;
+    pendingDeviceTimers.clear();
+    for (const t of data || []) {
+      pendingDeviceTimers.set(String(t.device_id), {
+        id:     t.id,
+        action: t.action,
+        fireAt: new Date(t.fire_at).getTime(),
+        label:  t.label,
+        rule_id: t.rule_id,
+      });
+    }
+  } catch (e) {
+    // Tabela pode não existir ainda se a migração não rodou — modo degradado.
+    console.warn('pending_timers indisponível:', e?.message || e);
+  }
+}
+
+let timerModalDeviceId = null;
+function openTimerModal(deviceId) {
+  const d = allDevices.find(x => x.id === deviceId);
+  if (!d) return;
+  timerModalDeviceId = deviceId;
+  document.getElementById('timerModalDeviceName').textContent = `${d.name} · ${d.room}`;
+  document.getElementById('timerValue').value = 10;
+  document.getElementById('timerUnit').value  = '60';
+  document.getElementById('timerAction').value = d.status ? 'off' : 'on';
+  document.getElementById('timerModalOverlay').classList.add('open');
+  setTimeout(() => document.getElementById('timerValue').focus(), 100);
+}
+function closeTimerModal() {
+  document.getElementById('timerModalOverlay').classList.remove('open');
+  timerModalDeviceId = null;
+}
+
+async function saveQuickTimer() {
+  if (!timerModalDeviceId) return;
+  const device = allDevices.find(d => d.id === timerModalDeviceId);
+  if (!device) return;
+
+  const val    = parseInt(document.getElementById('timerValue').value, 10);
+  const unit   = parseInt(document.getElementById('timerUnit').value, 10);
+  const action = document.getElementById('timerAction').value;
+  if (!val || val < 1) { showToast('Tempo inválido', 'error'); return; }
+
+  const delaySec = val * unit;
+  const fireAt   = new Date(Date.now() + delaySec * 1000).toISOString();
+  const label    = `${action === 'on' ? 'Ligar' : 'Desligar'} ${device.name}`;
+
+  // Cancela timer anterior do mesmo dispositivo (UX: só 1 por vez)
+  await cancelDeviceTimersForDevice(device.id);
+
+  const { data, error } = await db.from('pending_timers').insert({
+    device_id:   device.id,
+    device_name: device.name,
+    action, fire_at: fireAt, label,
+    source: 'manual_timer',
+  }).select().single();
+
+  if (error) {
+    showToast('Erro ao agendar timer', 'error');
+    console.warn(error);
+    return;
+  }
+
+  pendingDeviceTimers.set(String(device.id), {
+    id: data.id, action, fireAt: Date.parse(fireAt), label,
+  });
+  closeTimerModal();
+  renderDevices();
+  showToast(`⏲️ ${label} em ${formatElapsed(delaySec)}`, 'info');
+}
+
+async function cancelDeviceTimer(timerId, deviceId) {
+  if (timerId) {
+    await db.from('pending_timers')
+      .update({ cancelled_at: new Date().toISOString() })
+      .eq('id', timerId);
+  }
+  pendingDeviceTimers.delete(String(deviceId));
+  renderDevices();
+  showToast('Timer cancelado', 'info');
+}
+
+async function cancelDeviceTimersForDevice(deviceId) {
+  try {
+    await db.from('pending_timers')
+      .update({ cancelled_at: new Date().toISOString() })
+      .eq('device_id', deviceId)
+      .is('executed_at', null)
+      .is('cancelled_at', null);
+  } catch (e) { /* tabela pode não existir */ }
+  pendingDeviceTimers.delete(String(deviceId));
+}
+
+// ============================================================
+// CONSUMO / USO
+// ============================================================
+function openUsageModal() {
+  document.getElementById('usageModalOverlay').classList.add('open');
+  renderUsagePanel();
+}
+function closeUsageModal() {
+  document.getElementById('usageModalOverlay').classList.remove('open');
+}
+
+function renderUsagePanel() {
+  const el = document.getElementById('usagePanel');
+  // Ordena: ligados (com tempo vivo) primeiro, depois por acumulado desc
+  const list = [...allDevices].map(d => {
+    const liveSec = (d.status && d.on_since)
+      ? Math.floor((Date.now() - new Date(d.on_since).getTime()) / 1000)
+      : 0;
+    const total   = (d.total_on_time_seconds || 0) + liveSec;
+    return { d, liveSec, total };
+  }).sort((a, b) => (b.d.status - a.d.status) || (b.total - a.total));
+
+  if (list.length === 0) {
+    el.innerHTML = `<div class="empty-state" style="padding:16px">Sem dispositivos.</div>`;
+    return;
+  }
+
+  el.innerHTML = list.map(({d, liveSec, total}) => {
+    const live = d.status && liveSec > 0
+      ? `<span style="color:var(--green);font-weight:700">● ligado há ${formatElapsed(liveSec)}</span>` : '';
+    return `
+      <div class="usage-row">
+        <span class="u-name">${escapeHtml(d.name)} <small style="color:var(--text2)">· ${escapeHtml(d.room)}</small></span>
+        <span class="u-time">${live} ${live ? '·' : ''} Σ ${formatElapsed(total)}</span>
+      </div>`;
+  }).join('');
 }
 
 // ============================================================
@@ -2232,7 +2640,7 @@ async function saveDevice() {
 function subscribeRealtime() {
   db.channel('casa-realtime')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'devices' }, (payload) => {
-      let externalStatusChange = null;  // { id, status } se veio de fora
+      let externalStatusChange = null;  // { id, status, source } se veio de fora
       if (payload.eventType === 'UPDATE') {
         const idx = allDevices.findIndex(d => d.id === payload.new.id);
         const oldStatus = idx !== -1 ? allDevices[idx].status : null;
@@ -2240,7 +2648,12 @@ function subscribeRealtime() {
         // Se o status mudou e NÃO foi eco de uma ação local, avalia regras
         if (payload.new.status !== oldStatus
             && !wasRecentlyFired(payload.new.id, payload.new.status)) {
-          externalStatusChange = { id: payload.new.id, status: payload.new.status };
+          externalStatusChange = {
+            id:     payload.new.id,
+            status: payload.new.status,
+            source: payload.new.last_source || payload.new.last_changed,
+            name:   payload.new.name,
+          };
         }
       } else if (payload.eventType === 'INSERT') {
         if (!allDevices.find(d => d.id === payload.new.id)) allDevices.push(payload.new);
@@ -2251,6 +2664,18 @@ function subscribeRealtime() {
       renderDevices();
       renderRules();
       if (externalStatusChange) {
+        // Avisa o usuário se o interruptor foi apertado na parede
+        if (externalStatusChange.source === 'manual') {
+          showToast(
+            `🔘 ${externalStatusChange.name} ${externalStatusChange.status ? 'ligado' : 'desligado'} pelo interruptor`,
+            'info'
+          );
+        } else if (externalStatusChange.source === 'alexa') {
+          showToast(
+            `🎙️ ${externalStatusChange.name} via Alexa`,
+            'info'
+          );
+        }
         evaluateRules(externalStatusChange.id, externalStatusChange.status);
       }
     })
@@ -2262,7 +2687,7 @@ function subscribeRealtime() {
       item.innerHTML = `
         <div class="log-cmd">${newLog.command}</div>
         <div class="log-meta">
-          <span>${newLog.source === 'alexa' ? '🎙️ Alexa' : '🖥️ Painel'}</span>
+          <span>${sourceLabelIcon(newLog.source)}</span>
           <span>${newLog.device_name}</span>
           <span>${new Date(newLog.created_at).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}</span>
         </div>`;
@@ -2281,6 +2706,26 @@ function subscribeRealtime() {
           showToast(`🎙️ Lembrete via Alexa: ${payload.new.title}`, 'info');
         }
       }
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'pending_timers' }, (payload) => {
+      const row = payload.new || payload.old;
+      if (!row) return;
+      const devKey = String(row.device_id);
+
+      if (payload.eventType === 'INSERT') {
+        pendingDeviceTimers.set(devKey, {
+          id: row.id, action: row.action, fireAt: Date.parse(row.fire_at),
+          label: row.label, rule_id: row.rule_id,
+        });
+      } else if (payload.eventType === 'UPDATE') {
+        // Executado ou cancelado — remove da memória
+        if (row.executed_at || row.cancelled_at) {
+          pendingDeviceTimers.delete(devKey);
+        }
+      } else if (payload.eventType === 'DELETE') {
+        pendingDeviceTimers.delete(devKey);
+      }
+      renderDevices();
     })
     .subscribe((status) => {
       showStatus(status === 'SUBSCRIBED');
@@ -2502,7 +2947,7 @@ function handleCommand(text) {
     return;
   }
 
-  Promise.all(toChange.map(d => updateDevice(d.id, { status: action }))).then(() => {
+  Promise.all(toChange.map(d => updateDevice(d.id, { status: action }, { source: 'alexa', silent: true }))).then(() => {
     const roomLabel = targetRoom ? ` — ${targetRoom}` : '';
     const typeLabel = isLuz ? ' 💡' : isAr ? ' ❄️' : isVacuum ? ' 🤖' : ' 🔌';
     const msg = (action ? '✅ Ligado' : '🌙 Desligado') + typeLabel + roomLabel;
