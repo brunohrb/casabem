@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>casa BEM — Diagnóstico</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#f5f7fb; --card:#fff; --text:#1a2332; --muted:#6b7a99;
+    --ok:#1ea65a; --err:#dc3545; --warn:#e07a20; --border:#e1e8f3;
+    --accent:#3b6cf5;
+  }
+  *{box-sizing:border-box;font-family:-apple-system,Segoe UI,Roboto,sans-serif}
+  body{background:var(--bg);color:var(--text);margin:0;padding:24px;line-height:1.5}
+  h1{margin:0 0 4px;font-size:22px}
+  .sub{color:var(--muted);margin-bottom:24px;font-size:14px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;
+    padding:18px 20px;margin-bottom:14px;box-shadow:0 1px 3px rgba(30,42,66,.05)}
+  .row{display:flex;align-items:flex-start;gap:12px;padding:10px 0;
+    border-bottom:1px dashed var(--border)}
+  .row:last-child{border:none}
+  .badge{flex:0 0 auto;width:26px;height:26px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-size:14px;font-weight:700;color:#fff;margin-top:2px}
+  .badge.ok{background:var(--ok)}
+  .badge.err{background:var(--err)}
+  .badge.warn{background:var(--warn)}
+  .badge.idle{background:var(--muted)}
+  .title{font-weight:700;margin-bottom:2px}
+  .detail{color:var(--muted);font-size:13px;white-space:pre-wrap;word-break:break-word}
+  .detail code{background:#eef1f7;padding:1px 6px;border-radius:4px;
+    font-size:12px;font-family:ui-monospace,monospace}
+  .fix{color:var(--warn);font-size:12px;margin-top:4px;font-weight:600}
+  button{background:var(--accent);color:#fff;border:none;padding:8px 14px;
+    border-radius:8px;cursor:pointer;font-weight:600;font-size:14px}
+  button:disabled{opacity:.5;cursor:wait}
+  h2{font-size:15px;margin:0 0 8px;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.5px;font-weight:700}
+  .summary{display:flex;gap:16px;margin-bottom:16px}
+  .stat{background:var(--card);border:1px solid var(--border);border-radius:10px;
+    padding:12px 16px;min-width:90px}
+  .stat .val{font-size:22px;font-weight:800}
+  .stat .lbl{color:var(--muted);font-size:12px;text-transform:uppercase}
+  .stat.ok .val{color:var(--ok)}
+  .stat.err .val{color:var(--err)}
+  pre{background:#0b1220;color:#e0e8f5;padding:12px;border-radius:8px;
+    overflow-x:auto;font-size:12px;margin:8px 0}
+</style>
+</head>
+<body>
+
+<h1>🩺 casa BEM — Diagnóstico</h1>
+<p class="sub">
+  Testa se migrações, Edge Functions e cron estão no ar.
+  Use o mesmo Supabase do dashboard (ANON key).
+  <button id="runBtn" style="margin-left:8px">🔄 Rodar testes</button>
+</p>
+
+<div class="summary" id="summary">
+  <div class="stat"><div class="val" id="sOk">—</div><div class="lbl">✅ OK</div></div>
+  <div class="stat"><div class="val" id="sErr">—</div><div class="lbl">❌ Falhas</div></div>
+  <div class="stat"><div class="val" id="sWarn">—</div><div class="lbl">⚠️ Avisos</div></div>
+</div>
+
+<div class="card">
+  <h2>🗄️ Banco de dados</h2>
+  <div id="dbChecks"></div>
+</div>
+
+<div class="card">
+  <h2>⚡ Edge Functions</h2>
+  <div id="fnChecks"></div>
+</div>
+
+<div class="card">
+  <h2>🕒 Cron (agendamento)</h2>
+  <div id="cronChecks"></div>
+</div>
+
+<div class="card">
+  <h2>🔌 Estado real dos dispositivos</h2>
+  <div id="liveChecks"></div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://egonicvreizaknzwqvbt.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnb25pY3ZyZWl6YWtuendxdmJ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxOTQ2ODIsImV4cCI6MjA4OTc3MDY4Mn0.MRNFahn8obGmRHowMliJUIzdcO_CSa-z3IX1RlXdDgw';
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let okN = 0, errN = 0, warnN = 0;
+
+function row(container, level, title, detail, fix) {
+  const el = document.createElement('div');
+  el.className = 'row';
+  const icon = { ok:'✓', err:'✕', warn:'!', idle:'…' }[level];
+  el.innerHTML = `
+    <div class="badge ${level}">${icon}</div>
+    <div style="flex:1">
+      <div class="title">${title}</div>
+      ${detail ? `<div class="detail">${detail}</div>` : ''}
+      ${fix ? `<div class="fix">${fix}</div>` : ''}
+    </div>`;
+  document.getElementById(container).appendChild(el);
+  if (level === 'ok')   okN++;
+  if (level === 'err')  errN++;
+  if (level === 'warn') warnN++;
+  updateSummary();
+}
+
+function updateSummary() {
+  document.getElementById('sOk').textContent   = okN;
+  document.getElementById('sErr').textContent  = errN;
+  document.getElementById('sWarn').textContent = warnN;
+}
+
+function clearAll() {
+  okN = errN = warnN = 0; updateSummary();
+  ['dbChecks','fnChecks','cronChecks','liveChecks'].forEach(id => {
+    document.getElementById(id).innerHTML = '';
+  });
+}
+
+async function runAll() {
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true; btn.textContent = '⏳ Testando...';
+  clearAll();
+
+  await checkMigration1Columns();
+  await checkDeviceSessionsTable();
+  await checkPendingTimersTable();
+  await checkCommandsLogExpanded();
+  await checkFunctionTuyaControl();
+  await checkFunctionTuyaSync();
+  await checkFunctionTimerWorker();
+  await checkCronActivity();
+  await checkLiveDeviceState();
+
+  btn.disabled = false; btn.textContent = '🔄 Rodar testes novamente';
+}
+
+// ── DB CHECKS ──
+async function checkMigration1Columns() {
+  try {
+    const { data, error } = await db.from('devices')
+      .select('id, on_since, total_on_time_seconds, last_source, last_tuya_sync_at')
+      .limit(1);
+    if (error) throw error;
+    row('dbChecks', 'ok',
+      'Colunas novas em <code>devices</code>',
+      `on_since, total_on_time_seconds, last_source, last_tuya_sync_at — todas presentes.`);
+  } catch (e) {
+    row('dbChecks', 'err',
+      'Colunas novas em <code>devices</code>',
+      `Erro: ${e.message || e}`,
+      'A migração 20260421_000000_energy_tracking.sql não foi aplicada ou aplicou em outro projeto.');
+  }
+}
+
+async function checkDeviceSessionsTable() {
+  try {
+    const { data, count, error } = await db.from('device_sessions')
+      .select('id', { count: 'exact', head: true });
+    if (error) throw error;
+    row('dbChecks', 'ok',
+      'Tabela <code>device_sessions</code>',
+      `Existe. ${count ?? 0} sessões registradas até agora.`);
+  } catch (e) {
+    row('dbChecks', 'err', 'Tabela <code>device_sessions</code>',
+      e.message || e,
+      'Rode a migração 1.');
+  }
+}
+
+async function checkPendingTimersTable() {
+  try {
+    const { count, error } = await db.from('pending_timers')
+      .select('id', { count: 'exact', head: true });
+    if (error) throw error;
+
+    const { data: open } = await db.from('pending_timers')
+      .select('id, device_name, action, fire_at, label')
+      .is('executed_at', null).is('cancelled_at', null)
+      .order('fire_at');
+
+    row('dbChecks', 'ok',
+      'Tabela <code>pending_timers</code>',
+      `Existe. ${count ?? 0} timers no total, ${open?.length ?? 0} aguardando execução.`);
+  } catch (e) {
+    row('dbChecks', 'err', 'Tabela <code>pending_timers</code>',
+      e.message || e, 'Rode a migração 1.');
+  }
+}
+
+async function checkCommandsLogExpanded() {
+  // Tenta inserir um log com source='manual' — se o CHECK constraint
+  // ainda estiver restrito, vai falhar.
+  try {
+    const { data, error } = await db.from('commands_log')
+      .insert({
+        device_name: '__diagnostico__',
+        command: 'ping (diagnostico.html)',
+        source: 'manual',   // precisa estar na constraint nova
+        success: true
+      }).select('id').single();
+    if (error) throw error;
+    // apaga
+    await db.from('commands_log').delete().eq('id', data.id);
+    row('dbChecks', 'ok',
+      'Constraint <code>commands_log.source</code> expandida',
+      `Aceita 'manual' (e também 'rule', 'manual_timer', 'tuya-sync', 'app').`);
+  } catch (e) {
+    row('dbChecks', 'err',
+      'Constraint <code>commands_log.source</code> expandida',
+      e.message || e,
+      'Rode a migração 1 — ela dá DROP/ADD CHECK no commands_log.');
+  }
+}
+
+// ── EDGE FUNCTIONS ──
+async function callFn(name, body = {}) {
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'apikey': SUPABASE_KEY
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await r.text();
+  let json; try { json = JSON.parse(text); } catch { json = { raw: text }; }
+  return { status: r.status, body: json };
+}
+
+async function checkFunctionTuyaControl() {
+  try {
+    const r = await callFn('tuya-control', { action: 'status', device_id: '__ping__' });
+    // A função deve estar deployada e devolver algo — mesmo que seja um erro do Tuya,
+    // a gente sabe que está respondendo.
+    if (r.status === 200 || r.status === 500) {
+      row('fnChecks', 'ok',
+        'Edge Function <code>tuya-control</code>',
+        `Respondeu HTTP ${r.status}. Resposta: <pre>${JSON.stringify(r.body).slice(0,200)}</pre>`);
+    } else {
+      throw new Error(`HTTP ${r.status}: ${JSON.stringify(r.body).slice(0,200)}`);
+    }
+  } catch (e) {
+    row('fnChecks', 'err', 'Edge Function <code>tuya-control</code>',
+      e.message || e,
+      'Rode: <code>supabase functions deploy tuya-control</code>');
+  }
+}
+
+async function checkFunctionTuyaSync() {
+  try {
+    const r = await callFn('tuya-sync');
+    if (r.status === 200 && r.body?.success) {
+      row('fnChecks', 'ok',
+        'Edge Function <code>tuya-sync</code>',
+        `HTTP 200 · checked=${r.body.checked} · changed=${r.body.changed} · took=${r.body.took_ms}ms`
+        + (r.body.changed > 0 ? ` · ajustou ${r.body.changed} dispositivo(s) agora` : ''));
+    } else {
+      throw new Error(`HTTP ${r.status}: ${JSON.stringify(r.body).slice(0,300)}`);
+    }
+  } catch (e) {
+    row('fnChecks', 'err', 'Edge Function <code>tuya-sync</code>',
+      e.message || e,
+      'Rode: <code>supabase functions deploy tuya-sync</code>. Garanta que TUYA_ACCESS_ID e TUYA_ACCESS_SECRET estão em Edge Functions → Secrets.');
+  }
+}
+
+async function checkFunctionTimerWorker() {
+  try {
+    const r = await callFn('timer-worker');
+    if (r.status === 200 && r.body?.success) {
+      row('fnChecks', 'ok',
+        'Edge Function <code>timer-worker</code>',
+        `HTTP 200 · disparou ${r.body.fired ?? 0} timer(s)`);
+    } else {
+      throw new Error(`HTTP ${r.status}: ${JSON.stringify(r.body).slice(0,300)}`);
+    }
+  } catch (e) {
+    row('fnChecks', 'err', 'Edge Function <code>timer-worker</code>',
+      e.message || e,
+      'Rode: <code>supabase functions deploy timer-worker</code>');
+  }
+}
+
+// ── CRON ──
+async function checkCronActivity() {
+  // A gente não acessa cron.job com anon key (precisa service role).
+  // Mas podemos inferir pela atividade: devices.last_tuya_sync_at
+  // deve estar recente se o cron roda a cada 20s.
+  try {
+    const { data, error } = await db.from('devices')
+      .select('name, last_tuya_sync_at')
+      .not('tuya_device_id', 'is', null)
+      .order('last_tuya_sync_at', { ascending: false, nullsFirst: false })
+      .limit(5);
+    if (error) throw error;
+
+    const recent = data?.filter(d => d.last_tuya_sync_at
+      && (Date.now() - new Date(d.last_tuya_sync_at).getTime()) < 60_000) ?? [];
+
+    if (recent.length > 0) {
+      const last = recent[0];
+      const age = Math.round((Date.now() - new Date(last.last_tuya_sync_at).getTime()) / 1000);
+      row('cronChecks', 'ok',
+        'Cron <code>casabem_tuya_sync</code> ativo',
+        `Última sincronização com Tuya: ${age}s atrás (${last.name}). O cron está rodando a cada 20s.`);
+    } else if (data && data.length > 0 && data[0].last_tuya_sync_at) {
+      const age = Math.round((Date.now() - new Date(data[0].last_tuya_sync_at).getTime()) / 1000);
+      row('cronChecks', 'warn',
+        'Cron <code>casabem_tuya_sync</code>',
+        `Última sincronização foi há ${age}s — fora da janela esperada de 20s. Talvez o cron não esteja ativo, ou o tuya-sync está com erro.`,
+        'Rode no SQL Editor: <code>select jobname,schedule,active from cron.job where jobname like \'casabem_%\';</code>');
+    } else {
+      row('cronChecks', 'warn',
+        'Cron <code>casabem_tuya_sync</code>',
+        'Nenhum dispositivo tem tuya_device_id ou tuya-sync nunca rodou.',
+        'Verifique se a migração do cron foi rodada E se os devices têm tuya_device_id.');
+    }
+  } catch (e) {
+    row('cronChecks', 'err', 'Checagem de cron', e.message || e);
+  }
+}
+
+// ── LIVE STATE ──
+async function checkLiveDeviceState() {
+  try {
+    const { data, error } = await db.from('devices')
+      .select('id, name, room, status, last_source, on_since, total_on_time_seconds, tuya_device_id')
+      .order('room').order('name');
+    if (error) throw error;
+
+    const total       = data.length;
+    const withTuya    = data.filter(d => d.tuya_device_id).length;
+    const on          = data.filter(d => d.status).length;
+    const manual      = data.filter(d => d.last_source === 'manual').length;
+    const withOnSince = data.filter(d => d.on_since).length;
+
+    row('liveChecks', 'ok',
+      'Total de dispositivos',
+      `${total} cadastrados, ${withTuya} com <code>tuya_device_id</code>, ${on} ligado(s), ${withOnSince} com <code>on_since</code> preenchido.`);
+
+    if (manual > 0) {
+      row('liveChecks', 'ok',
+        'Detecção manual funcionando',
+        `${manual} dispositivo(s) com <code>last_source=manual</code> — o sync já pegou um interruptor físico.`);
+    } else {
+      row('liveChecks', 'warn',
+        'Detecção manual ainda não validada',
+        'Nenhum dispositivo foi marcado com last_source=manual. Aperte um interruptor físico e espere até 20s; depois rode os testes de novo.');
+    }
+
+    // Sessões recentes
+    const { data: sess } = await db.from('device_sessions')
+      .select('device_name, started_at, ended_at, duration_seconds, start_source')
+      .order('started_at', { ascending: false }).limit(5);
+    if (sess && sess.length > 0) {
+      const fmt = sess.map(s =>
+        `• <b>${s.device_name}</b> (${s.start_source||'?'}) — ${
+          s.ended_at ? `durou ${s.duration_seconds}s` : 'em andamento'
+        } — ${new Date(s.started_at).toLocaleString('pt-BR')}`
+      ).join('<br>');
+      row('liveChecks', 'ok', 'Últimas 5 sessões registradas', fmt);
+    } else {
+      row('liveChecks', 'warn',
+        'Nenhuma sessão em <code>device_sessions</code> ainda',
+        'Triggers estão instalados mas nenhum dispositivo ligou/desligou desde a migração. Ligue e desligue algo pelo app pra testar.');
+    }
+  } catch (e) {
+    row('liveChecks', 'err', 'Estado dos dispositivos', e.message || e);
+  }
+}
+
+document.getElementById('runBtn').onclick = runAll;
+runAll();
+</script>
+
+</body>
+</html>
