@@ -4278,13 +4278,50 @@ async function runIrDiscover() {
     irDiscoverRemotes = json.remotes || [];
 
     if (irDiscoverRemotes.length === 0) {
+      // Mostra diagnóstico: info do hub + cada endpoint que tentamos,
+      // com status/código/msg retornados pela Tuya. Ajuda a ver se é
+      // hub errado, API não-subscrita, etc.
+      const hi = json.hub_info || {};
+      const hiRes = hi.result || {};
+      const hubOK = hi.success;
+      const attempts = Array.isArray(json.attempts) ? json.attempts : [];
       body.innerHTML = `
-        <div style="padding:16px;background:#fff3cd;border:1px solid #ffe8a3;border-radius:8px;color:#8a6d00;font-size:13px">
+        <div style="padding:14px;background:#fff3cd;border:1px solid #ffe8a3;border-radius:8px;color:#8a6d00;font-size:13px;margin-bottom:10px">
           <b>Nenhum aparelho pareado encontrado.</b>
-          <div style="margin-top:6px;color:var(--text2)">
-            Confirme que você colou o ID do <b>hub IR</b> (não o do ar).
-            E que há pelo menos 1 controle (ar/TV) pareado nele pelo SmartLife.
+          <div style="margin-top:6px;color:var(--text2);font-size:12px">
+            Motivos comuns:<br>
+            1. O ID colado não é de um <b>hub IR</b> (é de um ar/TV, que é sub-device).<br>
+            2. No projeto Tuya Cloud, a API <b>"Universal IR Remote Control"</b> não foi habilitada.<br>
+            &nbsp;&nbsp;(Tuya IoT Platform → seu projeto → Cloud → Service API → Subscribe).<br>
+            3. O hub é Zigbee/outro protocolo, não IR real.
           </div>
+        </div>
+        <div style="font-size:12px;background:#f7f8fa;border:1px solid var(--border);border-radius:8px;padding:10px;font-family:monospace">
+          <div style="margin-bottom:6px"><b>Hub</b> <code>${escapeHtml(json.hub)}</code></div>
+          <div>status GET /v1.0/devices/{id}: <b>${hubOK ? '✅ ok' : '❌ falhou'}</b></div>
+          ${hubOK ? `
+            <div>nome: <b>${escapeHtml(hiRes.name || '?')}</b></div>
+            <div>categoria: <code>${escapeHtml(hiRes.category || '?')}</code> · product: <code>${escapeHtml(hiRes.product_id || '?')}</code></div>
+            <div>online: <b>${hiRes.online ? '✅' : '❌'}</b></div>
+          ` : `<div>msg: <i>${escapeHtml(hi.msg || hi.error || 'sem detalhe')}</i></div>`}
+          <div style="margin-top:10px;border-top:1px dashed var(--border);padding-top:8px"><b>Tentativas:</b></div>
+          ${attempts.map(a => `
+            <div style="margin-top:4px">
+              <b>${escapeHtml(a.label)}</b>
+              · ${a.success === true ? '✅' : a.success === false ? '❌' : '⚠️'}
+              ${a.count ? ` · ${a.count} item(s)` : ''}
+              ${a.code ? ` · code=${a.code}` : ''}
+              ${a.msg ? ` · <i>${escapeHtml(String(a.msg))}</i>` : ''}
+              ${a.error ? ` · <span style="color:var(--red)">${escapeHtml(a.error)}</span>` : ''}
+            </div>
+          `).join('')}
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:var(--text2)">
+          Se o Hub aparecer com categoria <code>wnykq</code> ou <code>ykq</code> e online ✅
+          mas todas as tentativas falharem com <b>code 28841002 / 1106 / 1010</b>,
+          é quase certo que a API "Universal IR Remote Control" não está habilitada
+          no projeto. Vai em <a href="https://platform.tuya.com/" target="_blank" style="color:var(--blue)">platform.tuya.com</a>
+          → seu projeto → <b>Service API</b> → procura "IR Control Hub" ou "Universal IR" → <b>Subscribe</b>.
         </div>`;
       return;
     }
