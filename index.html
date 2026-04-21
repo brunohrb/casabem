@@ -3054,7 +3054,11 @@ async function saveDevice() {
 
   const payload = { name, type, room, tuya_device_id: tuyaId, tuya_channel: tuyaChannel };
   const { data, error } = await db.from('devices').insert(payload).select().single();
-  if (error) { showToast('Erro ao salvar dispositivo', 'error'); return; }
+  if (error) {
+    console.error('saveDevice insert error:', error);
+    showToast('Erro ao salvar: ' + (error.message || 'desconhecido'), 'error');
+    return;
+  }
 
   allDevices.push(data);
   updateStats();
