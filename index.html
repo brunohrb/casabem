@@ -1482,16 +1482,21 @@
       right: 4px;
       display: flex;
       gap: 3px;
-      opacity: 0;
+      opacity: 0.45;
       transition: opacity 0.15s;
+      z-index: 2;
     }
-    .map-device-btn:hover .map-dev-actions { opacity: 0.85; }
+    .map-device-btn:hover .map-dev-actions { opacity: 1; }
+    /* Mobile (sem hover): ações sempre visíveis */
+    @media (hover: none) {
+      .map-device-btn .map-dev-actions { opacity: 0.8; }
+    }
 
     .map-dev-action {
       width: 22px;
       height: 22px;
       border-radius: 6px;
-      background: rgba(255,255,255,0.85);
+      background: rgba(255,255,255,0.9);
       border: 1px solid var(--border);
       font-size: 11px;
       line-height: 1;
@@ -1500,6 +1505,7 @@
       align-items: center;
       justify-content: center;
       color: var(--text2);
+      padding: 0;
     }
     .map-dev-action:hover { background: #fff; color: var(--accent); border-color: var(--accent); }
 
@@ -2800,9 +2806,15 @@ function renderMap() {
            d.type === 'light' && d.brightness != null ? `${d.brightness}%` :
            'Ligado')
         : 'Desligado';
+      // IMPORTANTE: não usar <button> como wrapper com <button>s dentro
+      // (HTML inválido → browser desaninha e quebra o layout). Usamos
+      // um <div role="button"> e damos suporte a teclado manualmente.
       return `
-        <button class="${classes}" id="mapdev-${d.id}" onclick="toggleMapDevice('${d.id}')"
-          title="${escapeHtml(d.name)} · ${d.status ? 'Ligado' : 'Desligado'}">
+        <div class="${classes}" id="mapdev-${d.id}"
+             role="button" tabindex="0"
+             onclick="toggleMapDevice('${d.id}')"
+             onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleMapDevice('${d.id}')}"
+             title="${escapeHtml(d.name)} · ${d.status ? 'Ligado' : 'Desligado'}">
           <div class="map-dev-actions">
             <button class="map-dev-action" title="Editar"
               onclick="event.stopPropagation();openEditDeviceModal('${d.id}')">✏️</button>
@@ -2812,7 +2824,7 @@ function renderMap() {
           <div class="map-device-icon">${deviceIcon(d.type)}</div>
           <div class="map-device-name">${escapeHtml(d.name)}</div>
           <div class="map-device-sub">${sub}</div>
-        </button>`;
+        </div>`;
     }).join('');
 
     return `
