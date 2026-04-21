@@ -262,10 +262,36 @@ serve(async (req) => {
                 category:   d.category,
                 product_id: d.product_id,
                 biz_type:   d.biz_type,
+                channels:   [] as string[],
               });
             }
           }
         }
+      }
+
+      // 3) Para cada device, consulta /status pra descobrir os canais
+      //    (switch_1, switch_2, ..., switch_led). Interruptores multi-tecla
+      //    têm >1 canal — o front usa isso pra criar uma entrada por tecla.
+      const CHANNEL_RE = /^switch_(\d+|led)$/;
+      const statusResps = await Promise.all(
+        devices.map(d =>
+          tuyaRequest("GET", `/v1.0/devices/${d.tuya_id}/status`, token)
+            .catch(() => null)
+        )
+      );
+      for (let i = 0; i < devices.length; i++) {
+        const r: any = statusResps[i];
+        const status = Array.isArray(r?.result) ? r.result : [];
+        const channels = status
+          .map((s: any) => s.code)
+          .filter((c: string) => CHANNEL_RE.test(c));
+        // Ordena: numéricos ascendentes, switch_led por último
+        channels.sort((a: string, b: string) => {
+          if (a === "switch_led") return 1;
+          if (b === "switch_led") return -1;
+          return parseInt(a.split("_")[1]) - parseInt(b.split("_")[1]);
+        });
+        devices[i].channels = channels;
       }
 
       return new Response(JSON.stringify({ success: true, devices }), { headers: corsHeaders });
