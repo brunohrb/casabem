@@ -43,17 +43,24 @@ async function sha256(data: string): Promise<string> {
 
 async function getTuyaToken(): Promise<string> {
   const t = Date.now().toString();
-  const stringToSign = TUYA_ACCESS_ID + t + "" + "\n" +
-    await sha256("") + "\n" + "" + "\n" + "/v1.0/token?grant_type=1";
+  const nonce = "";
+  const method = "GET";
+  const path = "/v1.0/token?grant_type=1";
+  const contentHash = await sha256("");
 
-  const sign = await hmacSHA256(TUYA_ACCESS_SECRET, stringToSign);
+  // Tuya v2: stringToSign = METHOD\n + sha256(body)\n + headers\n + url
+  // signStr = client_id + t + nonce + stringToSign  (sem access_token no endpoint de token)
+  const stringToSign = `${method}\n${contentHash}\n\n${path}`;
+  const signStr = `${TUYA_ACCESS_ID}${t}${nonce}${stringToSign}`;
+  const sign = await hmacSHA256(TUYA_ACCESS_SECRET, signStr);
 
-  const resp = await fetch(`${TUYA_BASE_URL}/v1.0/token?grant_type=1`, {
+  const resp = await fetch(`${TUYA_BASE_URL}${path}`, {
     headers: {
       "client_id":    TUYA_ACCESS_ID,
       "sign":         sign,
       "t":            t,
       "sign_method":  "HMAC-SHA256",
+      "nonce":        nonce,
     },
   });
 
@@ -69,12 +76,13 @@ async function tuyaRequest(
   body?: object
 ): Promise<unknown> {
   const t = Date.now().toString();
+  const nonce = "";
   const bodyStr = body ? JSON.stringify(body) : "";
   const bodyHash = await sha256(bodyStr);
-  const stringToSign = TUYA_ACCESS_ID + token + t + "" + "\n" +
-    bodyHash + "\n" + "" + "\n" + path;
 
-  const sign = await hmacSHA256(TUYA_ACCESS_SECRET, stringToSign);
+  const stringToSign = `${method}\n${bodyHash}\n\n${path}`;
+  const signStr = `${TUYA_ACCESS_ID}${token}${t}${nonce}${stringToSign}`;
+  const sign = await hmacSHA256(TUYA_ACCESS_SECRET, signStr);
 
   const resp = await fetch(`${TUYA_BASE_URL}${path}`, {
     method,
@@ -84,6 +92,7 @@ async function tuyaRequest(
       "sign":         sign,
       "t":            t,
       "sign_method":  "HMAC-SHA256",
+      "nonce":        nonce,
       "Content-Type": "application/json",
     },
     body: bodyStr || undefined,
