@@ -8,9 +8,10 @@ import { crypto } from "https://deno.land/std@0.168.0/crypto/mod.ts";
 import { encode as hexEncode } from "https://deno.land/std@0.168.0/encoding/hex.ts";
 
 // ── Tuya credentials (set as Supabase secrets) ───────────────────────────────
-const TUYA_ACCESS_ID     = Deno.env.get("TUYA_ACCESS_ID")!;
-const TUYA_ACCESS_SECRET = Deno.env.get("TUYA_ACCESS_SECRET")!;
-const TUYA_BASE_URL      = Deno.env.get("TUYA_BASE_URL") ?? "https://openapi.tuyaus.com";
+// trim() defende contra whitespace acidental copiado do dashboard Tuya.
+const TUYA_ACCESS_ID     = Deno.env.get("TUYA_ACCESS_ID")?.trim()     ?? "";
+const TUYA_ACCESS_SECRET = Deno.env.get("TUYA_ACCESS_SECRET")?.trim() ?? "";
+const TUYA_BASE_URL      = (Deno.env.get("TUYA_BASE_URL")?.trim() || "https://openapi.tuyaus.com");
 
 // ── Supabase credentials (auto-injected in Edge Functions) ───────────────────
 const SUPABASE_URL       = Deno.env.get("SUPABASE_URL")!;
