@@ -8,9 +8,9 @@ import { crypto } from "https://deno.land/std@0.168.0/crypto/mod.ts";
 import { encode as hexEncode } from "https://deno.land/std@0.168.0/encoding/hex.ts";
 
 // ── Tuya credentials (set as Supabase secrets) ───────────────────────────────
-const TUYA_ACCESS_ID     = Deno.env.get("TUYA_ACCESS_ID")     ?? "yrn8k3w7vtgwudm5ejs7";
-const TUYA_ACCESS_SECRET = Deno.env.get("TUYA_ACCESS_SECRET") ?? "16b2d1a434764a81b343fc62c1b58647";
-const TUYA_BASE_URL      = Deno.env.get("TUYA_BASE_URL")      ?? "https://openapi.tuyaus.com";
+const TUYA_ACCESS_ID     = Deno.env.get("TUYA_ACCESS_ID")!;
+const TUYA_ACCESS_SECRET = Deno.env.get("TUYA_ACCESS_SECRET")!;
+const TUYA_BASE_URL      = Deno.env.get("TUYA_BASE_URL") ?? "https://openapi.tuyaus.com";
 
 // ── Supabase credentials (auto-injected in Edge Functions) ───────────────────
 const SUPABASE_URL       = Deno.env.get("SUPABASE_URL")!;
@@ -112,6 +112,16 @@ serve(async (req) => {
     "Access-Control-Allow-Origin": "*",
     "Content-Type": "application/json",
   };
+
+  if (!TUYA_ACCESS_ID || !TUYA_ACCESS_SECRET) {
+    return new Response(
+      JSON.stringify({
+        error: "Tuya credentials missing",
+        detail: "Set TUYA_ACCESS_ID and TUYA_ACCESS_SECRET as Supabase Edge Function secrets.",
+      }),
+      { status: 500, headers: corsHeaders },
+    );
+  }
 
   try {
     const body = await req.json();
