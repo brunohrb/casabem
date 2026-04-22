@@ -2691,8 +2691,11 @@ async function updateDevice(id, fields, opts = {}) {
     success:     true,
   });
 
-  // ── Controle físico via Tuya (se dispositivo tiver tuya_device_id) ──
-  if ('status' in fields && device.tuya_device_id) {
+  // ── Controle físico via Tuya ──
+  // Dispara quando status mudou E o device tem pelo menos UM caminho
+  // de controle: tuya_device_id (switch direto ou IR) ou scene_on_id
+  // (cena Tuya Tap-to-Run, que independe de ter device_id).
+  if ('status' in fields && (device.tuya_device_id || device.scene_on_id)) {
     try {
       // Prioridade de controle:
       //   1) Cena Tuya bindada (scene_on_id / scene_off_id) → bypassa
