@@ -2133,6 +2133,31 @@
       </small>
     </div>
     <div class="form-row">
+      <label>Cena Tuya: ligar <small style="color:var(--text2)">(prioridade sobre IR)</small></label>
+      <select id="editDeviceSceneOn">
+        <option value="">— nenhuma (usa IR ou switch direto) —</option>
+      </select>
+      <small style="color:var(--text2);font-size:11px;margin-top:4px;display:block">
+        Quando setado, o toggle do card dispara essa cena Tuya em vez de mandar
+        comando IR. Útil quando o IR Control Hub API tá travado por quota.
+      </small>
+    </div>
+    <div class="form-row">
+      <label>Cena Tuya: desligar <small style="color:var(--text2)">(opcional, se vazio usa a de ligar)</small></label>
+      <select id="editDeviceSceneOff">
+        <option value="">— nenhuma (toggle único / usa mesma da de ligar) —</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <button type="button" class="btn btn-ghost" style="width:100%"
+              onclick="reloadScenesForEdit()">
+        🔄 Recarregar cenas do Tuya
+      </button>
+      <small style="color:var(--text2);font-size:11px;margin-top:4px;display:block">
+        Clique aqui se criou uma cena nova no SmartLife e quer atualizar os dropdowns.
+      </small>
+    </div>
+    <div class="form-row">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none">
         <input type="checkbox" id="editDeviceHiddenInMap" />
         <span>Ocultar no Mapa <small style="color:var(--text2)">(continua na Lista)</small></span>
@@ -2669,12 +2694,23 @@ async function updateDevice(id, fields, opts = {}) {
   // ── Controle físico via Tuya (se dispositivo tiver tuya_device_id) ──
   if ('status' in fields && device.tuya_device_id) {
     try {
-      // Dispositivos IR (via hub universal) precisam ir pelo endpoint
-      // /v2.0/infrareds/... — o Edge Function faz o roteamento quando
-      // ir_parent_id está preenchido. device_type ajuda a escolher entre
-      // AC (/air-conditioners/...) e TV/outro (/remotes/.../keys/Power).
+      // Prioridade de controle:
+      //   1) Cena Tuya bindada (scene_on_id / scene_off_id) → bypassa
+      //      a quota do IR Control Hub. Usado pra ares/TVs via hub IR.
+      //   2) Dispositivos IR (ir_parent_id) → endpoint /v2.0/infrareds/...
+      //   3) Switch direto (relé, tomada, lâmpada Wi-Fi) → /v1.0/devices/{id}/commands
       const irHub = device.ir_parent_id || null;
-      const body  = irHub
+      const wantOn = fields.status === true || fields.status === 1;
+      const sceneId = wantOn
+        ? device.scene_on_id
+        : (device.scene_off_id || device.scene_on_id); // fallback pra toggle único
+
+      const body = sceneId
+        ? {
+            action:    'trigger_scene',
+            scene_id:  sceneId,
+          }
+        : irHub
         ? {
             action:        'control',
             device_id:     device.tuya_device_id,
@@ -3940,6 +3976,56 @@ async function runScene(id) {
 // ============================================================
 let editingDeviceId = null;
 
+// Cache das cenas pra não chamar list_scenes toda vez que abrir o
+// modal. Se o user criar cena nova, clica "Recarregar cenas".
+let sceneCache = null;
+
+async function ensureScenesLoaded(forceReload = false) {
+  if (sceneCache && !forceReload) return sceneCache;
+  try {
+    const r = await fetch(TUYA_EDGE_FN, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'apikey':        SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+      },
+      body: JSON.stringify({ action: 'list_scenes' }),
+    });
+    const json = await r.json();
+    sceneCache = Array.isArray(json.scenes) ? json.scenes : [];
+  } catch (e) {
+    console.warn('ensureScenesLoaded failed', e);
+    sceneCache = [];
+  }
+  return sceneCache;
+}
+
+function populateSceneDropdowns(d) {
+  const scenes = sceneCache || [];
+  const onSel  = document.getElementById('editDeviceSceneOn');
+  const offSel = document.getElementById('editDeviceSceneOff');
+  const options = `
+    <option value="">— nenhuma —</option>
+    ${scenes.map(sc =>
+      `<option value="${escapeHtml(String(sc.scene_id))}">
+        ${escapeHtml(sc.name || '(sem nome)')} · ${escapeHtml(sc.home_name || '')}
+      </option>`
+    ).join('')}
+  `;
+  onSel.innerHTML = options;
+  offSel.innerHTML = options;
+  onSel.value  = d?.scene_on_id  || '';
+  offSel.value = d?.scene_off_id || '';
+}
+
+async function reloadScenesForEdit() {
+  const d = allDevices.find(x => x.id === editingDeviceId);
+  await ensureScenesLoaded(true);
+  populateSceneDropdowns(d);
+  showToast(`${(sceneCache || []).length} cena(s) carregada(s)`, 'success');
+}
+
 function openEditDeviceModal(id) {
   const d = allDevices.find(x => x.id === id);
   if (!d) return;
@@ -3952,6 +4038,11 @@ function openEditDeviceModal(id) {
   document.getElementById('editDeviceHiddenInMap').checked  = !!d.hidden_in_map;
   document.getElementById('editDeviceModalOverlay').classList.add('open');
   setTimeout(() => document.getElementById('editDeviceName').focus(), 100);
+
+  // Popula os dropdowns de cena em background. Se já tem cache,
+  // é instantâneo; senão, busca da API (1ª vez custa ~2s).
+  populateSceneDropdowns(d);                // mostra vazio imediato
+  ensureScenesLoaded().then(() => populateSceneDropdowns(d));
 }
 
 function closeEditDeviceModal() {
@@ -3961,31 +4052,30 @@ function closeEditDeviceModal() {
 
 async function saveEditingDevice() {
   if (!editingDeviceId) return;
-  const name    = document.getElementById('editDeviceName').value.trim();
-  const room    = document.getElementById('editDeviceRoom').value.trim();
-  const tid     = document.getElementById('editDeviceTuyaId').value.trim() || null;
-  const channel = document.getElementById('editDeviceTuyaSwitchCode').value || 'switch_1';
-  const irHub   = document.getElementById('editDeviceIrParentId').value.trim() || null;
-  const hidden  = document.getElementById('editDeviceHiddenInMap').checked;
+  const name     = document.getElementById('editDeviceName').value.trim();
+  const room     = document.getElementById('editDeviceRoom').value.trim();
+  const tid      = document.getElementById('editDeviceTuyaId').value.trim() || null;
+  const channel  = document.getElementById('editDeviceTuyaSwitchCode').value || 'switch_1';
+  const irHub    = document.getElementById('editDeviceIrParentId').value.trim() || null;
+  const sceneOn  = document.getElementById('editDeviceSceneOn').value || null;
+  const sceneOff = document.getElementById('editDeviceSceneOff').value || null;
+  const hidden   = document.getElementById('editDeviceHiddenInMap').checked;
   if (!name || !room) { showToast('Preencha nome e cômodo', 'error'); return; }
 
-  const { error } = await db.from('devices').update({
+  const patch = {
     name, room,
     tuya_device_id:   tid,
     tuya_switch_code: channel,
     ir_parent_id:     irHub,
+    scene_on_id:      sceneOn,
+    scene_off_id:     sceneOff,
     hidden_in_map:    hidden,
-  }).eq('id', editingDeviceId);
+  };
+  const { error } = await db.from('devices').update(patch).eq('id', editingDeviceId);
   if (error) { showToast('Erro ao salvar: ' + error.message, 'error'); return; }
 
   const d = allDevices.find(x => x.id === editingDeviceId);
-  if (d) {
-    d.name = name; d.room = room;
-    d.tuya_device_id = tid;
-    d.tuya_switch_code = channel;
-    d.ir_parent_id = irHub;
-    d.hidden_in_map = hidden;
-  }
+  if (d) Object.assign(d, patch);
   updateStats(); renderDevices();
   if (currentView === 'mapa' || document.body.classList.contains('kiosk')) renderMap();
   closeEditDeviceModal();
