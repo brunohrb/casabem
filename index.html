@@ -2416,6 +2416,9 @@ function renderDevices() {
               onclick="moveRoom('${roomEnc}', -1)">↑</button>
             <button class="room-arrow" title="Descer" ${isLast ? 'disabled' : ''}
               onclick="moveRoom('${roomEnc}', 1)">↓</button>
+            <button class="room-arrow" title="Apagar cômodo e todos os dispositivos"
+              style="color:var(--red)"
+              onclick="deleteRoom('${roomEnc}')">🗑️</button>
           </span>
         </div>
         <div class="devices-grid">
@@ -2477,6 +2480,53 @@ async function renameRoom(encodedRoom) {
 
   renderDevices();
   showToast(`✏️ "${oldName}" → "${trimmed}"`, 'success');
+}
+
+// ============================================================
+// APAGAR CÔMODO (e todos os dispositivos dele)
+// ------------------------------------------------------------
+// Remove em cascata: delete em `devices` (RLS permite ao dono) e
+// remove o nome em `room_order`. Ação destrutiva — pede 2 confirms.
+// ============================================================
+async function deleteRoom(encodedRoom) {
+  const room = decodeURIComponent(encodedRoom);
+  const devices = allDevices.filter(d => d.room === room);
+  const n = devices.length;
+
+  // Confirmação 1 — contextualizada
+  const ok1 = confirm(
+    `Apagar o cômodo "${room}" e seus ${n} dispositivo(s)?\n\n` +
+    `Dispositivos que serão apagados:\n` +
+    devices.map(d => `• ${d.name}`).join('\n') +
+    `\n\nEssa ação NÃO PODE ser desfeita.`
+  );
+  if (!ok1) return;
+
+  // Confirmação 2 — digite-o-nome, pra evitar clique acidental
+  const typed = prompt(
+    `Pra confirmar, digite exatamente o nome do cômodo:\n\n"${room}"`
+  );
+  if (typed === null || typed.trim() !== room) {
+    showToast('Cancelado (nome não conferiu)', 'warn');
+    return;
+  }
+
+  // 1) Apaga devices daquele cômodo (sessions/usage caem em cascade via FK)
+  const { error: e1 } = await db.from('devices').delete().eq('room', room);
+  if (e1) { showToast('Erro ao apagar dispositivos: ' + e1.message, 'error'); return; }
+
+  // 2) Remove posição salva
+  if (Object.prototype.hasOwnProperty.call(roomOrder, room)) {
+    await db.from('room_order').delete().eq('name', room);
+    delete roomOrder[room];
+  }
+
+  // 3) Estado local
+  allDevices = allDevices.filter(d => d.room !== room);
+
+  updateStats(); renderDevices();
+  if (currentView === 'mapa' || document.body.classList.contains('kiosk')) renderMap();
+  showToast(`🗑️ "${room}" e ${n} dispositivo(s) apagados`, 'success');
 }
 
 // ============================================================
