@@ -411,6 +411,180 @@ serve(async (req) => {
       return new Response(JSON.stringify(result), { headers: corsHeaders });
     }
 
+    if (action === "list_scenes") {
+      // Lista todas as cenas (Tap-to-Run / Scenario) de todas as homes
+      // associadas. Essas cenas usam Smart Home Basic Service (sem quota
+      // de IR) e são o caminho que a skill Alexa nativa usa pra disparar
+      // ações em ares/TVs controlados pelo hub IR.
+      //
+      // Tuya tem DUAS APIs de cenas dependendo da versão do app:
+      //   - /v1.0/homes/{home_id}/scenes  (legacy, "Tap-to-Run")
+      //   - /v2.0/scenes                  (novo, "Scene Linkage")
+      //
+      // Tentamos as duas e mergeamos.
+      const allScenes: any[] = [];
+      const diagnostics: any[] = [];
+
+      // 1) Descobre homes pelos UIDs ligados ao projeto
+      const uidSet = new Set<string>();
+      let lastRowKey = "";
+      for (let page = 0; page < 5; page++) {
+        const qs = lastRowKey
+          ? `?last_row_key=${encodeURIComponent(lastRowKey)}&size=50`
+          : `?size=50`;
+        const r: any = await tuyaRequest(
+          "GET", `/v1.0/iot-01/associated-users/devices${qs}`, token,
+        );
+        if (!r?.success) break;
+        const assocDevices = Array.isArray(r.result?.devices)
+          ? r.result.devices : asArray(r.result);
+        for (const d of assocDevices) if (d.uid) uidSet.add(d.uid);
+        if (!r.result?.has_more) break;
+        lastRowKey = r.result?.last_row_key ?? "";
+        if (!lastRowKey) break;
+      }
+
+      // 2) Pra cada uid, pega as homes
+      const homes: Array<{ home_id: string | number; name: string }> = [];
+      for (const uid of uidSet) {
+        const homesResp: any = await tuyaRequest("GET", `/v1.0/users/${uid}/homes`, token);
+        if (!homesResp?.success) continue;
+        for (const h of asArray<any>(homesResp.result)) {
+          homes.push({ home_id: h.home_id, name: h.name });
+        }
+      }
+
+      // 3) Pra cada home, lista as scenes (duas APIs)
+      for (const home of homes) {
+        // v1.0 — Tap-to-Run tradicional
+        try {
+          const r1: any = await tuyaRequest(
+            "GET", `/v1.0/homes/${home.home_id}/scenes`, token,
+          );
+          diagnostics.push({
+            home: home.name, api: "v1.0/homes/{id}/scenes",
+            success: r1?.success, msg: r1?.msg, count: asArray(r1?.result).length,
+          });
+          for (const sc of asArray<any>(r1?.result)) {
+            allScenes.push({
+              scene_id:   sc.scene_id || sc.id,
+              name:       sc.name,
+              home_id:    home.home_id,
+              home_name:  home.name,
+              enabled:    sc.enabled ?? true,
+              api:        "v1.0",
+            });
+          }
+        } catch (e) {
+          diagnostics.push({ home: home.name, api: "v1.0", error: String(e) });
+        }
+
+        // v2.0 — Scene Linkage (novo)
+        try {
+          const r2: any = await tuyaRequest(
+            "GET", `/v2.0/homes/${home.home_id}/scenes?space_id=${home.home_id}`, token,
+          );
+          diagnostics.push({
+            home: home.name, api: "v2.0/homes/{id}/scenes",
+            success: r2?.success, msg: r2?.msg,
+            count: asArray(r2?.result?.list ?? r2?.result).length,
+          });
+          const list = asArray<any>(r2?.result?.list ?? r2?.result);
+          for (const sc of list) {
+            // Evita duplicata se já veio na v1
+            const id = sc.scene_id || sc.id;
+            if (!allScenes.some(s => s.scene_id === id)) {
+              allScenes.push({
+                scene_id:   id,
+                name:       sc.name,
+                home_id:    home.home_id,
+                home_name:  home.name,
+                enabled:    sc.enabled ?? true,
+                api:        "v2.0",
+              });
+            }
+          }
+        } catch (e) {
+          diagnostics.push({ home: home.name, api: "v2.0", error: String(e) });
+        }
+      }
+
+      return new Response(
+        JSON.stringify({
+          success:     true,
+          scenes:      allScenes,
+          homes:       homes.map(h => ({ id: h.home_id, name: h.name })),
+          diagnostics,
+        }),
+        { headers: corsHeaders },
+      );
+    }
+
+    if (action === "trigger_scene") {
+      // Dispara uma cena Tuya. Aceita scene_id e (opcional) home_id/api.
+      // Como cada API tem um path diferente de trigger, tentamos vários.
+      const sid = body.scene_id || body.sceneId;
+      const hid = body.home_id;
+      if (!sid) throw new Error("scene_id required");
+
+      const tries: Array<{ label: string; method: string; path: string; body?: object }> = [
+        {
+          label: "v1.0 scenes/{id}/trigger",
+          method: "POST",
+          path: `/v1.0/homes/${hid ?? ""}/scenes/${sid}/trigger`,
+        },
+        {
+          label: "v1.0 scenes/trigger (no home)",
+          method: "POST",
+          path: `/v1.0/scenes/${sid}/trigger`,
+        },
+        {
+          label: "v2.0 scene-service trigger",
+          method: "POST",
+          path: `/v2.0/cloud/scene/rule/trigger`,
+          body: { ids: [sid] },
+        },
+        {
+          label: "v2.0 scenes trigger",
+          method: "POST",
+          path: `/v2.0/scenes/${sid}/actions/trigger`,
+        },
+      ];
+
+      let winner = "";
+      let finalResp: any = null;
+      for (const t of tries) {
+        try {
+          const r: any = await tuyaRequest(t.method, t.path, token, t.body);
+          (t as any).resp = r;
+          if (r?.success) {
+            winner = t.label;
+            finalResp = r;
+            break;
+          }
+        } catch (e) {
+          (t as any).error = String(e);
+        }
+      }
+
+      return new Response(
+        JSON.stringify({
+          success:  !!winner,
+          winner:   winner || null,
+          result:   finalResp?.result ?? null,
+          attempts: tries.map((t: any) => ({
+            label:   t.label,
+            path:    t.path,
+            success: t.resp?.success ?? null,
+            code:    t.resp?.code ?? null,
+            msg:     t.resp?.msg ?? null,
+            error:   t.error ?? null,
+          })),
+        }),
+        { headers: corsHeaders },
+      );
+    }
+
     if (action === "list_all_devices") {
       // Discovery flow for the "Sincronizar com SmartLife" modal.
       //
