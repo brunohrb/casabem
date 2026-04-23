@@ -443,6 +443,27 @@
     }
     .toggle input:checked + .toggle-slider::before { transform: translateX(20px); }
 
+    /* Botão Pulso — substitui o toggle on/off em dispositivos cuja
+       cena é toggle (TV via IR Power). Não tem estado ON/OFF, só
+       dispara o comando. Visualmente diferente pra deixar claro. */
+    .pulse-btn {
+      background: linear-gradient(135deg, #ffb347, #ff7e3a);
+      color: #fff;
+      border: none;
+      border-radius: 18px;
+      padding: 6px 14px;
+      font-weight: 700;
+      font-size: 12px;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(255,126,58,0.35);
+      transition: transform 120ms ease, box-shadow 120ms ease;
+      white-space: nowrap;
+    }
+    .pulse-btn:hover  { transform: scale(1.05); box-shadow: 0 3px 12px rgba(255,126,58,0.5); }
+    .pulse-btn:active { transform: scale(0.97); }
+    .pulse-btn:disabled { opacity: 0.6; cursor: wait; transform: none; }
+    .device-card.pulse { border-left: 3px solid #ff7e3a; }
+
     .device-name {
       font-size: 14px;
       font-weight: 700;
@@ -2569,6 +2590,12 @@ function deviceCardHTML(d) {
   const icons = { light:'💡', ac:'❄️', tv:'📺', vacuum:'🤖', other:'🔌' };
   const icon  = icons[d.type] || '🔌';
 
+  // Modo "pulso": dispositivo só tem cena ON (sem OFF separado).
+  // Típico de TV via IR: a tecla Power é toggle, não tem ON/OFF
+  // distintos. Renderizamos um botão único em vez de switch on/off
+  // pra deixar claro que é pulso e evitar que o card minta sobre estado.
+  const pulse = !!d.scene_on_id && !d.scene_off_id;
+
   let extraControls = '';
 
   if (d.type === 'light') {
@@ -2636,7 +2663,10 @@ function deviceCardHTML(d) {
 
   // Texto informativo conforme o tipo e estado
   let infoText;
-  if (d.status) {
+  if (pulse) {
+    // Pulso não tem estado real, só dispara comando.
+    infoText = '⚡ Pulso · cada clique alterna no aparelho';
+  } else if (d.status) {
     if (d.type === 'ac')          infoText = `${d.temperature || 22}°C · ${d.ac_mode || 'cool'}`;
     else if (d.type === 'tv')     infoText = `Vol: ${d.volume || 30}`;
     else if (d.type === 'light')  infoText = `${d.brightness || 100}%`;
@@ -2646,13 +2676,13 @@ function deviceCardHTML(d) {
     infoText = d.type === 'vacuum' ? 'Na base' : 'Desligado';
   }
 
-  // Tempo ligado (vivo) — só mostra se status=on && on_since
+  // Tempo ligado (vivo) — só mostra se status=on && on_since && não é pulso
   let elapsedHtml = '';
-  if (d.status && d.on_since) {
+  if (!pulse && d.status && d.on_since) {
     const sec = Math.max(0, Math.floor((Date.now() - new Date(d.on_since).getTime()) / 1000));
     const longCls = sec > 3600 ? ' long' : '';
     elapsedHtml = `<div class="elapsed${longCls}" data-elapsed-for="${d.id}">⏱️ ligado há ${formatElapsed(sec)}</div>`;
-  } else if (!d.status && d.total_on_time_seconds > 0) {
+  } else if (!pulse && !d.status && d.total_on_time_seconds > 0) {
     elapsedHtml = `<div class="elapsed" title="Tempo total acumulado ligado">
       Σ ${formatElapsed(d.total_on_time_seconds)} no total</div>`;
   }
@@ -2670,22 +2700,26 @@ function deviceCardHTML(d) {
   }
 
   return `
-    <div class="device-card ${d.status ? 'on' : ''}" id="card-${d.id}">
+    <div class="device-card ${pulse ? 'pulse' : (d.status ? 'on' : '')}" id="card-${d.id}">
       <div class="card-header">
         <span class="device-icon">${icon}</span>
-        <label class="toggle" onclick="event.stopPropagation()">
-          <input type="checkbox" ${d.status ? 'checked' : ''}
-            onchange="updateDevice('${d.id}', {status:this.checked})" />
-          <span class="toggle-slider"></span>
-        </label>
+        ${pulse
+          ? `<button class="pulse-btn" onclick="event.stopPropagation();firePulse('${d.id}')"
+                title="Dispara a cena Power — alterna o aparelho">⚡ Power</button>`
+          : `<label class="toggle" onclick="event.stopPropagation()">
+              <input type="checkbox" ${d.status ? 'checked' : ''}
+                onchange="updateDevice('${d.id}', {status:this.checked})" />
+              <span class="toggle-slider"></span>
+            </label>`
+        }
       </div>
       <button class="edit-btn" title="Editar" onclick="openEditDeviceModal('${d.id}')">✏️</button>
       <div class="device-name">${d.name}</div>
       <div class="device-info">${infoText}</div>
       ${elapsedHtml}
-      <span class="source-badge ${sourceClass}">${sourceLabel}</span>
-      ${timerHtml}
-      ${d.status && !activeTimer ? `
+      ${pulse ? '' : `<span class="source-badge ${sourceClass}">${sourceLabel}</span>`}
+      ${pulse ? '' : timerHtml}
+      ${!pulse && d.status && !activeTimer ? `
         <button class="timer-btn" onclick="openTimerModal('${d.id}')">⏲️ Desligar em…</button>
       ` : ''}
       ${extraControls ? `
@@ -2712,6 +2746,69 @@ function toggleExpand(id, btn) {
   const card = document.getElementById('card-' + id);
   const open = card.classList.toggle('expanded');
   btn.textContent = open ? '⚙️ Fechar ▴' : '⚙️ Configurar ▾';
+}
+
+// ============================================================
+// PULSO — dispositivos com cena ON sem cena OFF
+// ------------------------------------------------------------
+// Para TVs e outros aparelhos cujo IR é toggle (Power apenas, sem
+// distinção On/Off): em vez de simular um switch que pode dessincronizar
+// com a realidade, dispara só a cena. O card mostra um botão único.
+// ============================================================
+async function firePulse(deviceId) {
+  const device = allDevices.find(d => d.id === deviceId);
+  if (!device || !device.scene_on_id) {
+    showToast('Dispositivo sem cena configurada', 'error');
+    return;
+  }
+
+  // Feedback otimista — atualiza UI antes da resposta da Tuya
+  const btn = document.querySelector(`#card-${deviceId} .pulse-btn`);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ enviando…';
+  }
+
+  try {
+    const r = await fetch(TUYA_EDGE_FN, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'apikey':        SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+      },
+      body: JSON.stringify({
+        action:   'trigger_scene',
+        scene_id: device.scene_on_id,
+      }),
+    });
+    const result = await r.json();
+
+    if (result.success) {
+      showToast(`⚡ ${device.name}: pulso enviado`, 'success');
+      // Registra no log pra histórico aparecer
+      await db.from('commands_log').insert({
+        device_id:   device.id,
+        device_name: device.name,
+        command:     `Painel: pulso (cena ${device.scene_on_id})`,
+        source:      'dashboard',
+        success:     true,
+      }).then(() => {}).catch(() => {});
+    } else {
+      const msg = result?.attempts?.[0]?.msg
+               || (result?.attempts || []).find(a => a.msg)?.msg
+               || result?.msg
+               || 'cena não disparou';
+      showToast(`Erro: ${msg}`, 'error');
+    }
+  } catch (e) {
+    showToast(`Erro de rede: ${e.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '⚡ Power';
+    }
+  }
 }
 
 async function updateDevice(id, fields, opts = {}) {
