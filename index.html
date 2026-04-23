@@ -1599,28 +1599,32 @@
     body.kiosk #listaView { display: none !important; }
     body.kiosk #mapView { display: block !important; padding: 18px; }
 
-    /* Modo Tela cheia: variáveis dimensionadas por fitKioskLayout()
-       que roda on-enter e on-resize. Cards redimensionam pra caber
-       tudo sem scroll. Sem JS, fallback pros defaults abaixo. */
+    /* Modo Tela cheia: layout flex com basis proporcional à
+       quantidade de devices em cada cômodo. Card size calculado
+       por fitKioskLayout() pra encaixar tudo sem scroll. */
     body.kiosk {
       overflow: hidden;                 /* sem scroll externo */
     }
     body.kiosk #mapView { overflow: hidden; height: 100vh; padding: 14px !important; }
     body.kiosk .map-wrapper { max-width: none; height: 100%; }
     body.kiosk .map-floor {
-      grid-template-columns: repeat(var(--kiosk-cols, 3), 1fr);
-      grid-auto-rows: 1fr;
-      gap: 12px;
-      height: 100%;
+      display: flex;
+      flex-wrap: wrap;
+      align-content: flex-start;
+      gap: 10px;
+      height: auto;
+      max-height: 100%;
+      overflow: hidden;
     }
     body.kiosk .map-room {
       background: rgba(255,255,255,0.04);
       border-color: rgba(255,255,255,0.12);
       color: #e6edf5;
-      grid-column: span var(--room-span, 1);
-      overflow: hidden;
       display: flex;
       flex-direction: column;
+      padding: 10px;
+      overflow: hidden;
+      /* flex-basis e height ajustados pelo JS */
     }
     body.kiosk .map-room-label {
       color: #e6edf5;
@@ -1636,15 +1640,18 @@
       color: #8df0a0;
     }
     body.kiosk .map-devices {
+      display: grid;
       grid-template-columns: repeat(var(--room-inner-cols, 2), 1fr);
       flex: 1;
       align-content: start;
+      gap: 8px;
     }
     body.kiosk .map-device-btn {
       background: rgba(255,255,255,0.05);
       border-color: rgba(255,255,255,0.12);
       color: #aec2d6;
-      min-height: var(--kiosk-card-h, 90px);
+      height: var(--kiosk-card-h, 90px);
+      min-height: 0;
       font-size: var(--kiosk-base, 12px);
       padding: 6px 4px;
     }
@@ -2816,12 +2823,17 @@ function deviceCardHTML(d) {
       ${pulse ? '' : `<span class="source-badge ${sourceClass}">${sourceLabel}</span>`}
       ${pulse ? '' : timerHtml}
       ${
-        // Botões ⏲️ Desligar em… e ⚙️ Configurar ▾ escondidos —
-        // eram confusos porque os sliders/modos só funcionam se o
-        // Tuya device suporta os DPs específicos (raro com cena/IR).
-        // Mantemos só pra vacuum (cujos botões de Limpar/Pausar
-        // funcionam de verdade via updateDevice status).
-        d.type === 'vacuum' && extraControls ? `
+        // ⏲️ Desligar em… habilitado pra luzes/relés/ACs com OFF
+        // (não pulso). Pra pulso não faz sentido (ficaria ambíguo
+        // se o Power ia ligar ou desligar quando disparasse).
+        !pulse && d.status && !activeTimer && (d.type === 'light' || d.type === 'other' || (d.type === 'ac' && d.scene_off_id)) ? `
+          <button class="timer-btn" onclick="openTimerModal('${d.id}')">⏲️ Desligar em…</button>
+        ` : ''
+      }
+      ${
+        // Controles extras: mantém pra luz (brilho), vacuum (botões)
+        // e esconde pra tv/ac (sliders não funcionam com cena/IR).
+        extraControls && (d.type === 'light' || d.type === 'vacuum') ? `
           <div class="card-controls" style="display:block">${extraControls}</div>
         ` : ''
       }
@@ -3438,12 +3450,12 @@ function exitKioskMode() {
   releaseWakeLock();
   window.removeEventListener('resize', fitKioskLayout);
   // Limpa as CSS vars customizadas
-  document.body.style.removeProperty('--kiosk-cols');
   document.body.style.removeProperty('--kiosk-card-h');
   document.body.style.removeProperty('--kiosk-icon');
   document.body.style.removeProperty('--kiosk-base');
   document.querySelectorAll('.map-room').forEach(el => {
-    el.style.removeProperty('--room-span');
+    el.style.removeProperty('flex');
+    el.style.removeProperty('height');
     el.style.removeProperty('--room-inner-cols');
   });
   if (document.fullscreenElement && document.exitFullscreen) {
@@ -3458,16 +3470,14 @@ function exitKioskMode() {
 // ============================================================
 // fitKioskLayout — calcula tamanhos pra tudo caber sem scroll
 // ------------------------------------------------------------
-// Estratégia:
-//  1. Mede a área útil (innerWidth × innerHeight menos relógio e padding).
-//  2. Conta N dispositivos visíveis e M cômodos.
-//  3. Distribui área proporcional ao nº de devices por cômodo:
-//     - cômodo com mais devices ocupa mais colunas.
-//  4. Calcula card size a partir de área total ÷ total de devices.
-//  5. Aplica como CSS custom properties.
+// Estratégia (layout flex + basis proporcional):
+//  1. Estima um cardSide a partir de área total / total de devices.
+//  2. Cada cômodo recebe flex-basis proporcional à sua quantidade
+//     de devices (room com 11 ocupa ~11× o room com 1).
+//  3. Dentro de cada cômodo, grid com innerCols = ceil(sqrt(n)).
+//  4. Ajusta cardSide pra baixo se o layout total estourar a altura.
 //
-// É "good enough" — não é matemático perfeito, mas evita scroll em
-// telas comuns (tablet 10", monitor 1080p/1440p).
+// Assume que a altura é mais escassa que a largura (monitor wide).
 // ============================================================
 function fitKioskLayout() {
   if (!document.body.classList.contains('kiosk')) return;
@@ -3476,46 +3486,67 @@ function fitKioskLayout() {
   const rooms = Array.from(floor.querySelectorAll('.map-room'));
   if (!rooms.length) return;
 
-  const W = window.innerWidth  - 28;            // padding externo
-  const H = window.innerHeight - 28 - 56;       // reserva p/ relógio
+  const W = window.innerWidth  - 28;             // padding externo
+  const H = window.innerHeight - 28 - 50;        // reserva p/ relógio
 
-  // nº de dispositivos visíveis por cômodo (ignora hidden_in_map no kiosk)
+  // nº de devices por cômodo
   const counts = rooms.map(r => r.querySelectorAll('.map-device-btn').length);
   const totalDevices = counts.reduce((a, b) => a + b, 0) || 1;
 
-  // Quantas colunas de cômodo cabem? Depende do tamanho da tela.
-  // Alvo: cada cômodo com ~280-380px de largura.
-  const roomCols = Math.max(1, Math.min(6, Math.round(W / 340)));
-  document.body.style.setProperty('--kiosk-cols', roomCols);
+  // Função helper: dado um cardSide, calcula a altura total ocupada.
+  // Rooms são arrumados em linhas por flex-wrap. Cada room tem
+  // tamanho proporcional ao seu device count.
+  function layoutAt(cardSide) {
+    const gap     = 10;
+    const roomPad = 20;      // padding top+bottom do .map-room
+    const labelH  = 38;      // altura aproximada do title
 
-  // Distribui span entre os cômodos proporcional ao device count.
-  // Ao menos 1 col por cômodo. Se houver sobra de colunas, dá pros
-  // cômodos com mais devices.
-  const roomRows = Math.max(1, Math.ceil(rooms.length / roomCols));
-  const totalCells = roomCols * roomRows;
-  // fator = cells / totalDevices = área por device
-  const baseCellPerRoom = roomCols;  // total cols disponíveis por row
+    // Pra cada room, calcula innerCols e suas dimensões
+    const roomSizes = rooms.map((_, i) => {
+      const n = counts[i] || 1;
+      const innerCols = Math.max(1, Math.min(5, Math.ceil(Math.sqrt(n))));
+      const innerRows = Math.ceil(n / innerCols);
+      const roomW = innerCols * cardSide + (innerCols - 1) * gap + roomPad;
+      const roomH = labelH + innerRows * cardSide + (innerRows - 1) * gap + roomPad;
+      return { w: roomW, h: roomH, innerCols };
+    });
+
+    // Simula flex-wrap: acumula rooms numa linha até W, quebra.
+    let lineW = 0;
+    let lineH = 0;
+    let totalH = 0;
+    for (const s of roomSizes) {
+      if (lineW + s.w + gap > W && lineW > 0) {
+        totalH += lineH + gap;
+        lineW = s.w;
+        lineH = s.h;
+      } else {
+        lineW += s.w + gap;
+        lineH = Math.max(lineH, s.h);
+      }
+    }
+    totalH += lineH;
+    return { totalH, roomSizes };
+  }
+
+  // Busca o maior cardSide que faz totalH <= H
+  let cardSide = 160;
+  let result = layoutAt(cardSide);
+  while (cardSide > 60 && result.totalH > H) {
+    cardSide -= 4;
+    result = layoutAt(cardSide);
+  }
+
+  // Aplica nos rooms e nas CSS vars
   rooms.forEach((el, i) => {
-    // Span = proporção do cômodo sobre total, mas limitada a roomCols
-    const pct = counts[i] / totalDevices;
-    const rawSpan = Math.round(pct * baseCellPerRoom * roomRows);
-    const span = Math.max(1, Math.min(roomCols, rawSpan || 1));
-    el.style.setProperty('--room-span', span);
-
-    // Colunas internas de cada cômodo: sqrt(devices) arredondado.
-    const n = counts[i] || 1;
-    const innerCols = Math.max(1, Math.min(4, Math.ceil(Math.sqrt(n))));
-    el.style.setProperty('--room-inner-cols', innerCols);
+    const s = result.roomSizes[i];
+    el.style.flex = `0 0 ${Math.round(s.w)}px`;
+    el.style.height = `${Math.round(s.h)}px`;
+    el.style.setProperty('--room-inner-cols', s.innerCols);
   });
-
-  // Tamanho de card: área total ÷ total devices, limites práticos.
-  // Reserva ~30% pra labels/padding/gaps.
-  const usable = W * H * 0.60;
-  const cardArea = usable / totalDevices;
-  const cardSide = Math.max(70, Math.min(180, Math.sqrt(cardArea)));
   document.body.style.setProperty('--kiosk-card-h', `${Math.round(cardSide)}px`);
-  document.body.style.setProperty('--kiosk-icon',   `${Math.round(cardSide * 0.30)}px`);
-  document.body.style.setProperty('--kiosk-base',   `${Math.round(cardSide * 0.14)}px`);
+  document.body.style.setProperty('--kiosk-icon',   `${Math.round(cardSide * 0.32)}px`);
+  document.body.style.setProperty('--kiosk-base',   `${Math.round(cardSide * 0.13)}px`);
 }
 
 function startKioskClock() {
