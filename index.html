@@ -321,6 +321,24 @@
       font-weight: 600;
     }
 
+    /* Botões de cena por cômodo (💡 Ligar / 🌙 Apagar).
+       Aparecem no header quando o cômodo tem cena configurada. */
+    .room-scene-btn {
+      border: 1px solid transparent;
+      border-radius: 14px;
+      padding: 3px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      margin-left: 6px;
+    }
+    .room-scene-on  { background: #fff8e1; color: #a07400; border-color: #ffd46b; }
+    .room-scene-off { background: #1a2535; color: #aec2d6; border-color: #304666; }
+    .room-scene-on:hover  { background: #ffecb3; transform: translateY(-1px); }
+    .room-scene-off:hover { background: #243552; transform: translateY(-1px); }
+    .room-scene-btn:disabled { opacity: 0.6; cursor: wait; }
+
     .room-reorder {
       margin-left: auto;
       display: flex;
@@ -2104,6 +2122,50 @@
 </div>
 
 <!-- ============================================================
+     MODAL - Configurar cenas de um cômodo
+     ------------------------------------------------------------
+     Ligar/Apagar tudo do cômodo via uma cena Tuya Tap-to-Run.
+     O usuário cria a cena no SmartLife (ex.: "Sala: todas as luzes
+     OFF" com o Power do interruptor apagando tudo) e pica aqui. O
+     header do cômodo passa a exibir 💡 Ligar / 🌙 Apagar.
+============================================================ -->
+<div class="modal-overlay" id="roomConfigModalOverlay" onclick="if(event.target===this)closeRoomConfigModal()">
+  <div class="modal" style="max-width:520px">
+    <h2>⚙️ Configurar cômodo <span id="roomConfigName" style="color:var(--accent)"></span></h2>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:14px">
+      Liga este cômodo a cenas Tuya (Tap-to-Run). Quando setado, o
+      header ganha botões <b>💡 Ligar</b> e <b>🌙 Apagar</b> que
+      disparam a cena — bem mais simples que clicar device por device.
+    </p>
+    <div class="form-row">
+      <label>Cena Tuya: ligar todo o cômodo</label>
+      <select id="roomConfigSceneOn">
+        <option value="">— nenhuma —</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>Cena Tuya: apagar todo o cômodo</label>
+      <select id="roomConfigSceneOff">
+        <option value="">— nenhuma —</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <button type="button" class="btn btn-ghost" style="width:100%"
+              onclick="reloadScenesForRoomConfig()">
+        🔄 Recarregar cenas do Tuya
+      </button>
+      <small style="color:var(--text2);font-size:11px;margin-top:4px;display:block">
+        Criou uma cena nova no SmartLife? Clique pra atualizar os dropdowns.
+      </small>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeRoomConfigModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveRoomConfig()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
      MODAL - Descobrir aparelhos IR de um hub
 ============================================================ -->
 <div class="modal-overlay" id="irDiscoverModalOverlay" onclick="if(event.target===this)closeIrDiscoverModal()">
@@ -2317,6 +2379,7 @@ let allDevices  = [];
 let allReminders = [];
 let allScenes    = [];   // [{id, name, icon, color, position, actions:[{device_id, action, order_idx}]}]
 let roomOrder    = {};   // { "Sala": 0, "Quarto": 1, ... }
+let roomMeta     = {};   // { "Sala": { scene_on_id, scene_off_id, position } }
 
 // ============================================================
 // INICIALIZAÇÃO
@@ -2374,7 +2437,11 @@ async function loadRoomOrder() {
   const { data, error } = await db.from('room_order').select('*');
   if (error) { console.warn('room_order load error:', error); return; }
   roomOrder = {};
-  for (const r of (data || [])) roomOrder[r.name] = r.position;
+  roomMeta  = {};
+  for (const r of (data || [])) {
+    roomOrder[r.name] = r.position;
+    roomMeta[r.name]  = r;                       // inclui scene_on_id / scene_off_id
+  }
 }
 
 async function loadScenes() {
@@ -2449,7 +2516,17 @@ function renderDevices() {
         <div class="room-title">
           ${roomIcons[room] || '🏠'} ${escapeHtml(room)}
           <span class="room-count">${devices.length}</span>
+          ${roomMeta[room]?.scene_on_id ? `
+            <button class="room-scene-btn room-scene-on" title="Ligar cômodo (cena Tuya)"
+              onclick="fireRoomScene('${roomEnc}','on')">💡 Ligar</button>
+          ` : ''}
+          ${roomMeta[room]?.scene_off_id ? `
+            <button class="room-scene-btn room-scene-off" title="Apagar cômodo (cena Tuya)"
+              onclick="fireRoomScene('${roomEnc}','off')">🌙 Apagar</button>
+          ` : ''}
           <span class="room-reorder">
+            <button class="room-arrow" title="Configurar cenas do cômodo"
+              onclick="openRoomConfigModal('${roomEnc}')">⚙️</button>
             <button class="room-arrow" title="Renomear cômodo"
               onclick="renameRoom('${roomEnc}')">✏️</button>
             <button class="room-arrow" title="Subir" ${isFirst ? 'disabled' : ''}
@@ -2777,6 +2854,124 @@ function toggleExpand(id, btn) {
 // distinção On/Off): em vez de simular um switch que pode dessincronizar
 // com a realidade, dispara só a cena. O card mostra um botão único.
 // ============================================================
+// ============================================================
+// CENAS POR CÔMODO
+// ------------------------------------------------------------
+// Cada cômodo pode ter 2 cenas Tuya associadas: uma pra ligar e
+// outra pra apagar tudo. Header do cômodo exibe botões 💡/🌙 que
+// chamam trigger_scene direto. Bypassa a iteração device-por-device
+// e aproveita a infra já existente de cenas.
+// ============================================================
+let editingRoomName = null;
+
+async function openRoomConfigModal(encodedRoom) {
+  const room = decodeURIComponent(encodedRoom);
+  editingRoomName = room;
+  document.getElementById('roomConfigName').textContent = `"${room}"`;
+  // Popula dropdowns do cache de cenas (sem carregar se já tem)
+  await ensureScenesLoaded();
+  populateRoomSceneDropdowns(room);
+  document.getElementById('roomConfigModalOverlay').classList.add('open');
+}
+
+function closeRoomConfigModal() {
+  document.getElementById('roomConfigModalOverlay').classList.remove('open');
+  editingRoomName = null;
+}
+
+function populateRoomSceneDropdowns(room) {
+  const scenes = sceneCache || [];
+  const meta   = roomMeta[room] || {};
+  const onSel  = document.getElementById('roomConfigSceneOn');
+  const offSel = document.getElementById('roomConfigSceneOff');
+  const options = `
+    <option value="">— nenhuma —</option>
+    ${scenes.map(sc =>
+      `<option value="${escapeHtml(String(sc.scene_id))}">
+        ${escapeHtml(sc.name || '(sem nome)')} · ${escapeHtml(sc.home_name || '')}
+      </option>`
+    ).join('')}
+  `;
+  onSel.innerHTML  = options;
+  offSel.innerHTML = options;
+  onSel.value  = meta.scene_on_id  || '';
+  offSel.value = meta.scene_off_id || '';
+}
+
+async function reloadScenesForRoomConfig() {
+  if (!editingRoomName) return;
+  await ensureScenesLoaded(true);
+  populateRoomSceneDropdowns(editingRoomName);
+  showToast(`${(sceneCache || []).length} cena(s) carregada(s)`, 'success');
+}
+
+async function saveRoomConfig() {
+  if (!editingRoomName) return;
+  const room     = editingRoomName;
+  const onId     = document.getElementById('roomConfigSceneOn').value || null;
+  const offId    = document.getElementById('roomConfigSceneOff').value || null;
+  const position = roomOrder[room] ?? 999;
+
+  // UPSERT na room_order (PK = name)
+  const { error } = await db.from('room_order').upsert({
+    name:          room,
+    position,
+    scene_on_id:   onId,
+    scene_off_id:  offId,
+  }, { onConflict: 'name' });
+  if (error) { showToast('Erro ao salvar: ' + error.message, 'error'); return; }
+
+  roomMeta[room] = { ...(roomMeta[room] || {}), name: room, position, scene_on_id: onId, scene_off_id: offId };
+  renderDevices();
+  closeRoomConfigModal();
+  showToast(`⚙️ "${room}": cenas atualizadas`, 'success');
+}
+
+async function fireRoomScene(encodedRoom, which) {
+  const room = decodeURIComponent(encodedRoom);
+  const meta = roomMeta[room];
+  if (!meta) return;
+  const sceneId = which === 'on' ? meta.scene_on_id : meta.scene_off_id;
+  if (!sceneId) return;
+
+  // Feedback visual no botão
+  const selector = which === 'on' ? '.room-scene-on' : '.room-scene-off';
+  const btn = document.querySelector(`[data-room="${CSS.escape(room)}"] ${selector}`) ||
+              [...document.querySelectorAll(selector)]
+                .find(el => el.closest('.room-group[data-room]')?.dataset?.room === room);
+  if (btn) {
+    btn.disabled = true;
+    btn.dataset._orig = btn.textContent;
+    btn.textContent = '⏳ enviando…';
+  }
+
+  try {
+    const r = await fetch(TUYA_EDGE_FN, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'apikey':        SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+      },
+      body: JSON.stringify({ action: 'trigger_scene', scene_id: sceneId }),
+    });
+    const result = await r.json();
+    if (result.success) {
+      showToast(`${which === 'on' ? '💡' : '🌙'} "${room}": cena disparada`, 'success');
+    } else {
+      const msg = (result?.attempts || []).find(a => a.msg)?.msg || result?.msg || 'cena falhou';
+      showToast(`Erro: ${msg}`, 'error');
+    }
+  } catch (e) {
+    showToast(`Erro de rede: ${e.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = btn.dataset._orig || (which === 'on' ? '💡 Ligar' : '🌙 Apagar');
+    }
+  }
+}
+
 async function firePulse(deviceId) {
   const device = allDevices.find(d => d.id === deviceId);
   if (!device) return;
