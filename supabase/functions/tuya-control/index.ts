@@ -524,32 +524,79 @@ serve(async (req) => {
       // Dispara uma cena Tuya. Aceita scene_id e (opcional) home_id/api.
       // Como cada API tem um path diferente de trigger, tentamos vários.
       const sid = body.scene_id || body.sceneId;
-      const hid = body.home_id;
+      let   hid = body.home_id;
       if (!sid) throw new Error("scene_id required");
 
-      const tries: Array<{ label: string; method: string; path: string; body?: object }> = [
-        {
-          label: "v1.0 scenes/{id}/trigger",
+      // Se o cliente não passou home_id (ex.: toggle do card direto),
+      // descobre sozinho: varre homes do projeto e olha qual contém
+      // essa scene_id. Evita forçar o frontend a carregar cenas antes.
+      if (!hid) {
+        try {
+          const uidSet = new Set<string>();
+          let lastRowKey = "";
+          for (let page = 0; page < 3; page++) {
+            const qs = lastRowKey
+              ? `?last_row_key=${encodeURIComponent(lastRowKey)}&size=50`
+              : `?size=50`;
+            const r: any = await tuyaRequest(
+              "GET", `/v1.0/iot-01/associated-users/devices${qs}`, token,
+            );
+            if (!r?.success) break;
+            const assocDevices = Array.isArray(r.result?.devices)
+              ? r.result.devices : asArray(r.result);
+            for (const d of assocDevices) if (d.uid) uidSet.add(d.uid);
+            if (!r.result?.has_more) break;
+            lastRowKey = r.result?.last_row_key ?? "";
+            if (!lastRowKey) break;
+          }
+          outer:
+          for (const uid of uidSet) {
+            const homesResp: any = await tuyaRequest(
+              "GET", `/v1.0/users/${uid}/homes`, token,
+            );
+            for (const h of asArray<any>(homesResp?.result)) {
+              const s: any = await tuyaRequest(
+                "GET", `/v1.0/homes/${h.home_id}/scenes`, token,
+              );
+              if (asArray<any>(s?.result).some(x =>
+                (x.scene_id || x.id) === sid
+              )) {
+                hid = h.home_id;
+                break outer;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("home_id auto-discover failed", e);
+        }
+      }
+
+      const tries: Array<{ label: string; method: string; path: string; body?: object }> = [];
+      if (hid) {
+        tries.push({
+          label: "v1.0 homes/{hid}/scenes/{sid}/trigger",
           method: "POST",
-          path: `/v1.0/homes/${hid ?? ""}/scenes/${sid}/trigger`,
-        },
+          path: `/v1.0/homes/${hid}/scenes/${sid}/trigger`,
+        });
+      }
+      tries.push(
         {
-          label: "v1.0 scenes/trigger (no home)",
+          label: "v1.0 scenes/{sid}/trigger",
           method: "POST",
           path: `/v1.0/scenes/${sid}/trigger`,
         },
         {
-          label: "v2.0 scene-service trigger",
+          label: "v2.0 cloud/scene/rule/trigger",
           method: "POST",
           path: `/v2.0/cloud/scene/rule/trigger`,
           body: { ids: [sid] },
         },
         {
-          label: "v2.0 scenes trigger",
+          label: "v2.0 scenes/{sid}/actions/trigger",
           method: "POST",
           path: `/v2.0/scenes/${sid}/actions/trigger`,
         },
-      ];
+      );
 
       let winner = "";
       let finalResp: any = null;
@@ -571,6 +618,7 @@ serve(async (req) => {
         JSON.stringify({
           success:  !!winner,
           winner:   winner || null,
+          home_id:  hid || null,          // pro frontend cachear se quiser
           result:   finalResp?.result ?? null,
           attempts: tries.map((t: any) => ({
             label:   t.label,
