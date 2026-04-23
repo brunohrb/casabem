@@ -321,6 +321,28 @@
       font-weight: 600;
     }
 
+    /* Lista de checkboxes de canais (switch_1, switch_2, ...) na modal
+       de novo/editar dispositivo. Compacta em 2 colunas pra caber. */
+    .channel-checks {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px 14px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg3);
+    }
+    .channel-checks label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .channel-checks label small { color: var(--text2); font-size: 11px; }
+    .channel-checks input[type=checkbox] { margin: 0; cursor: pointer; }
+
     /* Botões de cena por cômodo (💡 Ligar / 🌙 Apagar).
        Aparecem no header quando o cômodo tem cena configurada. */
     .room-scene-btn {
@@ -1968,18 +1990,18 @@
       <input type="text" id="newTuyaId" placeholder="Ex: bfxxxxxxxxxxxxxxxxxxxx" />
     </div>
     <div class="form-row">
-      <label>Canal Tuya <small style="color:var(--text2)">(p/ interruptor multi-tecla)</small></label>
-      <select id="newTuyaSwitchCode">
-        <option value="switch_1">switch_1 (tecla 1 / padrão)</option>
-        <option value="switch_2">switch_2 (tecla 2)</option>
-        <option value="switch_3">switch_3 (tecla 3)</option>
-        <option value="switch_4">switch_4 (tecla 4)</option>
-        <option value="switch_5">switch_5 (tecla 5)</option>
-        <option value="switch_6">switch_6 (tecla 6)</option>
-        <option value="switch_7">switch_7 (tecla 7)</option>
-        <option value="switch_8">switch_8 (tecla 8)</option>
-        <option value="switch_led">switch_led (lâmpada c/ dimmer)</option>
-      </select>
+      <label>Canais Tuya <small style="color:var(--text2)">(marque múltiplos pra grupo "todas as luzes")</small></label>
+      <div id="newTuyaSwitchCodes" class="channel-checks">
+        <label><input type="checkbox" value="switch_1" checked /> switch_1 <small>(tecla 1)</small></label>
+        <label><input type="checkbox" value="switch_2" /> switch_2 <small>(tecla 2)</small></label>
+        <label><input type="checkbox" value="switch_3" /> switch_3 <small>(tecla 3)</small></label>
+        <label><input type="checkbox" value="switch_4" /> switch_4 <small>(tecla 4)</small></label>
+        <label><input type="checkbox" value="switch_5" /> switch_5 <small>(tecla 5)</small></label>
+        <label><input type="checkbox" value="switch_6" /> switch_6 <small>(tecla 6)</small></label>
+        <label><input type="checkbox" value="switch_7" /> switch_7 <small>(tecla 7)</small></label>
+        <label><input type="checkbox" value="switch_8" /> switch_8 <small>(tecla 8)</small></label>
+        <label><input type="checkbox" value="switch_led" /> switch_led <small>(dimmer)</small></label>
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
@@ -2220,18 +2242,22 @@
       <input type="text" id="editDeviceTuyaId" placeholder="bf... (aparece no SmartLife)" />
     </div>
     <div class="form-row">
-      <label>Canal Tuya <small style="color:var(--text2)">(p/ interruptor multi-tecla)</small></label>
-      <select id="editDeviceTuyaSwitchCode">
-        <option value="switch_1">switch_1 (tecla 1 / padrão)</option>
-        <option value="switch_2">switch_2 (tecla 2)</option>
-        <option value="switch_3">switch_3 (tecla 3)</option>
-        <option value="switch_4">switch_4 (tecla 4)</option>
-        <option value="switch_5">switch_5 (tecla 5)</option>
-        <option value="switch_6">switch_6 (tecla 6)</option>
-        <option value="switch_7">switch_7 (tecla 7)</option>
-        <option value="switch_8">switch_8 (tecla 8)</option>
-        <option value="switch_led">switch_led (lâmpada c/ dimmer)</option>
-      </select>
+      <label>Canais Tuya <small style="color:var(--text2)">(marque múltiplos pra controlar várias teclas de uma vez)</small></label>
+      <div id="editDeviceTuyaSwitchCodes" class="channel-checks">
+        <label><input type="checkbox" value="switch_1" /> switch_1 <small>(tecla 1)</small></label>
+        <label><input type="checkbox" value="switch_2" /> switch_2 <small>(tecla 2)</small></label>
+        <label><input type="checkbox" value="switch_3" /> switch_3 <small>(tecla 3)</small></label>
+        <label><input type="checkbox" value="switch_4" /> switch_4 <small>(tecla 4)</small></label>
+        <label><input type="checkbox" value="switch_5" /> switch_5 <small>(tecla 5)</small></label>
+        <label><input type="checkbox" value="switch_6" /> switch_6 <small>(tecla 6)</small></label>
+        <label><input type="checkbox" value="switch_7" /> switch_7 <small>(tecla 7)</small></label>
+        <label><input type="checkbox" value="switch_8" /> switch_8 <small>(tecla 8)</small></label>
+        <label><input type="checkbox" value="switch_led" /> switch_led <small>(dimmer)</small></label>
+      </div>
+      <small style="color:var(--text2);font-size:11px;margin-top:6px;display:block">
+        Marque <b>1 canal</b> pra controle normal de 1 tecla, ou <b>múltiplos</b> pra um card que
+        liga/desliga várias teclas ao mesmo tempo (ex.: "Sala todas as luzes" → 1+2+3+4).
+      </small>
     </div>
     <div class="form-row">
       <label>ID do Hub IR <small style="color:var(--text2)">(p/ ar/TV via controle universal)</small></label>
@@ -3114,12 +3140,25 @@ async function updateDevice(id, fields, opts = {}) {
             device_type:   device.type === 'ac' ? 'ac' : 'tv',
             value:         fields.status,
           }
-        : {
-            action:      'control',
-            device_id:   device.tuya_device_id,
-            switch_code: device.tuya_switch_code || 'switch_1',
-            value:       fields.status,
-          };
+        : (function () {
+            // Multi-canal: se tuya_switch_code tem vírgula (ex: "switch_1,switch_2"),
+            // manda uma lista de comandos de uma vez (action=control aceita value=array).
+            const codes = String(device.tuya_switch_code || 'switch_1')
+              .split(',').map(s => s.trim()).filter(Boolean);
+            if (codes.length > 1) {
+              return {
+                action:    'control',
+                device_id: device.tuya_device_id,
+                value:     codes.map(c => ({ code: c, value: !!fields.status })),
+              };
+            }
+            return {
+              action:      'control',
+              device_id:   device.tuya_device_id,
+              switch_code: codes[0] || 'switch_1',
+              value:       fields.status,
+            };
+          })();
       const resp = await fetch(TUYA_EDGE_FN, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
@@ -4523,6 +4562,23 @@ async function reloadScenesForEdit() {
   showToast(`${(sceneCache || []).length} cena(s) carregada(s)`, 'success');
 }
 
+// ----------------------------------------------------------------
+// Helpers pros checkboxes de canais (switch_1, switch_2, ...).
+// O DB guarda em tuya_switch_code como lista separada por vírgula
+// ("switch_1,switch_2,switch_3"). Um único canal = sem vírgula =
+// retrocompatível com o formato antigo.
+// ----------------------------------------------------------------
+function setChannelChecks(containerId, value) {
+  const codes = (value || 'switch_1').split(',').map(s => s.trim()).filter(Boolean);
+  const set = new Set(codes);
+  document.querySelectorAll(`#${containerId} input[type=checkbox]`)
+    .forEach(cb => { cb.checked = set.has(cb.value); });
+}
+function getCheckedChannels(containerId) {
+  return Array.from(document.querySelectorAll(`#${containerId} input[type=checkbox]:checked`))
+    .map(cb => cb.value);
+}
+
 function openEditDeviceModal(id) {
   const d = allDevices.find(x => x.id === id);
   if (!d) return;
@@ -4530,7 +4586,7 @@ function openEditDeviceModal(id) {
   document.getElementById('editDeviceName').value           = d.name || '';
   document.getElementById('editDeviceRoom').value           = d.room || '';
   document.getElementById('editDeviceTuyaId').value         = d.tuya_device_id || '';
-  document.getElementById('editDeviceTuyaSwitchCode').value = d.tuya_switch_code || 'switch_1';
+  setChannelChecks('editDeviceTuyaSwitchCodes', d.tuya_switch_code);
   document.getElementById('editDeviceIrParentId').value     = d.ir_parent_id || '';
   document.getElementById('editDeviceHiddenInMap').checked  = !!d.hidden_in_map;
   document.getElementById('editDeviceModalOverlay').classList.add('open');
@@ -4552,7 +4608,8 @@ async function saveEditingDevice() {
   const name     = document.getElementById('editDeviceName').value.trim();
   const room     = document.getElementById('editDeviceRoom').value.trim();
   const tid      = document.getElementById('editDeviceTuyaId').value.trim() || null;
-  const channel  = document.getElementById('editDeviceTuyaSwitchCode').value || 'switch_1';
+  const checkedChannels = getCheckedChannels('editDeviceTuyaSwitchCodes');
+  const channel  = (checkedChannels.length ? checkedChannels : ['switch_1']).join(',');
   const irHub    = document.getElementById('editDeviceIrParentId').value.trim() || null;
   const sceneOn  = document.getElementById('editDeviceSceneOn').value || null;
   const sceneOff = document.getElementById('editDeviceSceneOff').value || null;
@@ -5243,7 +5300,7 @@ function openModal(room = '') {
 
   document.getElementById('newRoom').value = decoded;
   document.getElementById('newName').value = '';
-  document.getElementById('newTuyaSwitchCode').value = 'switch_1';
+  setChannelChecks('newTuyaSwitchCodes', 'switch_1');
 
   // Sugere o Tuya Device ID do cômodo: se já existe algum dispositivo nessa
   // sala com tuya_device_id cadastrado, pré-preenche com o mesmo ID (afinal
@@ -5266,7 +5323,8 @@ async function saveDevice() {
   const type             = document.getElementById('newType').value;
   const room             = document.getElementById('newRoom').value.trim();
   const tuya_device_id   = document.getElementById('newTuyaId').value.trim() || null;
-  const tuya_switch_code = document.getElementById('newTuyaSwitchCode').value || 'switch_1';
+  const checkedChannels  = getCheckedChannels('newTuyaSwitchCodes');
+  const tuya_switch_code = (checkedChannels.length ? checkedChannels : ['switch_1']).join(',');
 
   if (!name || !room) { showToast('Preencha nome e cômodo', 'error'); return; }
 
