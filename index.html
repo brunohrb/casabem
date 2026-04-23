@@ -2590,11 +2590,11 @@ function deviceCardHTML(d) {
   const icons = { light:'💡', ac:'❄️', tv:'📺', vacuum:'🤖', other:'🔌' };
   const icon  = icons[d.type] || '🔌';
 
-  // Modo "pulso": dispositivo só tem cena ON (sem OFF separado).
-  // Típico de TV via IR: a tecla Power é toggle, não tem ON/OFF
-  // distintos. Renderizamos um botão único em vez de switch on/off
-  // pra deixar claro que é pulso e evitar que o card minta sobre estado.
-  const pulse = !!d.scene_on_id && !d.scene_off_id;
+  // Modo "pulso": dispositivo com tecla Power toggle (sem ON/OFF distintos).
+  // Default pra TV (IR de TV é sempre toggle) OU qualquer device que tenha
+  // só scene_on_id sem scene_off_id. Em vez de switch on/off simulado, um
+  // botão único ⚡ Power que dispara o comando sem pretender saber estado.
+  const pulse = d.type === 'tv' || (!!d.scene_on_id && !d.scene_off_id);
 
   let extraControls = '';
 
@@ -2757,16 +2757,40 @@ function toggleExpand(id, btn) {
 // ============================================================
 async function firePulse(deviceId) {
   const device = allDevices.find(d => d.id === deviceId);
-  if (!device || !device.scene_on_id) {
-    showToast('Dispositivo sem cena configurada', 'error');
+  if (!device) return;
+
+  // Prioridade do caminho: Cena > IR direto > switch. TV sem nada
+  // configurado → não tem o que disparar, avisa.
+  const hasScene  = !!device.scene_on_id;
+  const hasIrHub  = !!device.ir_parent_id && !!device.tuya_device_id;
+  const hasSwitch = !!device.tuya_device_id && !device.ir_parent_id;
+  if (!hasScene && !hasIrHub && !hasSwitch) {
+    showToast(`${device.name} sem cena nem IR configurado`, 'error');
     return;
   }
 
-  // Feedback otimista — atualiza UI antes da resposta da Tuya
   const btn = document.querySelector(`#card-${deviceId} .pulse-btn`);
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = '⏳ enviando…';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ enviando…'; }
+
+  // Monta o body conforme o caminho disponível
+  let body;
+  let cmdLabel;
+  if (hasScene) {
+    body     = { action: 'trigger_scene', scene_id: device.scene_on_id };
+    cmdLabel = `cena ${device.scene_on_id}`;
+  } else if (hasIrHub) {
+    body = {
+      action:        'control',
+      device_id:     device.tuya_device_id,
+      ir_parent_id:  device.ir_parent_id,
+      device_type:   device.type === 'ac' ? 'ac' : 'tv',
+      ir_key:        'Power',
+      value:         true,            // o IR fallback aceita boolean tbm
+    };
+    cmdLabel = 'IR Power';
+  } else {
+    // Switch direto — vai cair no toggle normal via updateDevice com status alternado
+    return updateDevice(deviceId, { status: !device.status });
   }
 
   try {
@@ -2777,20 +2801,16 @@ async function firePulse(deviceId) {
         'apikey':        SUPABASE_KEY,
         'Authorization': `Bearer ${SUPABASE_KEY}`,
       },
-      body: JSON.stringify({
-        action:   'trigger_scene',
-        scene_id: device.scene_on_id,
-      }),
+      body: JSON.stringify(body),
     });
     const result = await r.json();
 
     if (result.success) {
       showToast(`⚡ ${device.name}: pulso enviado`, 'success');
-      // Registra no log pra histórico aparecer
       await db.from('commands_log').insert({
         device_id:   device.id,
         device_name: device.name,
-        command:     `Painel: pulso (cena ${device.scene_on_id})`,
+        command:     `Painel: pulso (${cmdLabel})`,
         source:      'dashboard',
         success:     true,
       }).then(() => {}).catch(() => {});
@@ -2798,16 +2818,13 @@ async function firePulse(deviceId) {
       const msg = result?.attempts?.[0]?.msg
                || (result?.attempts || []).find(a => a.msg)?.msg
                || result?.msg
-               || 'cena não disparou';
+               || 'comando falhou';
       showToast(`Erro: ${msg}`, 'error');
     }
   } catch (e) {
     showToast(`Erro de rede: ${e.message}`, 'error');
   } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = '⚡ Power';
-    }
+    if (btn) { btn.disabled = false; btn.textContent = '⚡ Power'; }
   }
 }
 
