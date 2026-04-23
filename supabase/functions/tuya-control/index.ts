@@ -428,6 +428,9 @@ serve(async (req) => {
       // 1) Descobre homes pelos UIDs ligados ao projeto
       const uidSet = new Set<string>();
       let lastRowKey = "";
+      // Diagnóstico: guarda a resposta crua do primeiro associated-users
+      // pra aparecer na resposta quando der ruim.
+      const debug: any = { associated_users: null, homes_per_uid: [] };
       for (let page = 0; page < 5; page++) {
         const qs = lastRowKey
           ? `?last_row_key=${encodeURIComponent(lastRowKey)}&size=50`
@@ -435,6 +438,20 @@ serve(async (req) => {
         const r: any = await tuyaRequest(
           "GET", `/v1.0/iot-01/associated-users/devices${qs}`, token,
         );
+        if (page === 0) {
+          debug.associated_users = {
+            success: r?.success,
+            msg: r?.msg,
+            code: r?.code,
+            devices_count: Array.isArray(r?.result?.devices)
+              ? r.result.devices.length
+              : asArray(r?.result).length,
+            has_more: r?.result?.has_more,
+            // Primeiros 2 devices (sem info sensível extra)
+            sample: (Array.isArray(r?.result?.devices) ? r.result.devices : asArray(r?.result))
+              .slice(0, 2).map((d: any) => ({ id: d.id, uid: d.uid, name: d.name })),
+          };
+        }
         if (!r?.success) break;
         const assocDevices = Array.isArray(r.result?.devices)
           ? r.result.devices : asArray(r.result);
@@ -443,11 +460,20 @@ serve(async (req) => {
         lastRowKey = r.result?.last_row_key ?? "";
         if (!lastRowKey) break;
       }
+      debug.uids_found = uidSet.size;
+      debug.uids = [...uidSet];
 
       // 2) Pra cada uid, pega as homes
       const homes: Array<{ home_id: string | number; name: string }> = [];
       for (const uid of uidSet) {
         const homesResp: any = await tuyaRequest("GET", `/v1.0/users/${uid}/homes`, token);
+        debug.homes_per_uid.push({
+          uid,
+          success: homesResp?.success,
+          msg: homesResp?.msg,
+          code: homesResp?.code,
+          count: asArray(homesResp?.result).length,
+        });
         if (!homesResp?.success) continue;
         for (const h of asArray<any>(homesResp.result)) {
           homes.push({ home_id: h.home_id, name: h.name });
@@ -515,6 +541,7 @@ serve(async (req) => {
           scenes:      allScenes,
           homes:       homes.map(h => ({ id: h.home_id, name: h.name })),
           diagnostics,
+          debug,      // raw info da Tuya pra facilitar diagnóstico
         }),
         { headers: corsHeaders },
       );
