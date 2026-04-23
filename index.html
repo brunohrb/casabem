@@ -1581,20 +1581,33 @@
     body.kiosk #listaView { display: none !important; }
     body.kiosk #mapView { display: block !important; padding: 18px; }
 
-    body.kiosk .map-wrapper { max-width: none; }
+    /* Modo Tela cheia: variáveis dimensionadas por fitKioskLayout()
+       que roda on-enter e on-resize. Cards redimensionam pra caber
+       tudo sem scroll. Sem JS, fallback pros defaults abaixo. */
+    body.kiosk {
+      overflow: hidden;                 /* sem scroll externo */
+    }
+    body.kiosk #mapView { overflow: hidden; height: 100vh; padding: 14px !important; }
+    body.kiosk .map-wrapper { max-width: none; height: 100%; }
     body.kiosk .map-floor {
-      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-      gap: 14px;
+      grid-template-columns: repeat(var(--kiosk-cols, 3), 1fr);
+      grid-auto-rows: 1fr;
+      gap: 12px;
+      height: 100%;
     }
     body.kiosk .map-room {
       background: rgba(255,255,255,0.04);
       border-color: rgba(255,255,255,0.12);
       color: #e6edf5;
+      grid-column: span var(--room-span, 1);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
     body.kiosk .map-room-label {
       color: #e6edf5;
       border-bottom-color: rgba(255,255,255,0.12);
-      font-size: 17px;
+      font-size: calc(var(--kiosk-base, 14px) * 1.15);
     }
     body.kiosk .map-room-label .mr-count {
       background: rgba(255,255,255,0.08);
@@ -1604,12 +1617,18 @@
       background: rgba(39,168,69,0.22);
       color: #8df0a0;
     }
+    body.kiosk .map-devices {
+      grid-template-columns: repeat(var(--room-inner-cols, 2), 1fr);
+      flex: 1;
+      align-content: start;
+    }
     body.kiosk .map-device-btn {
       background: rgba(255,255,255,0.05);
       border-color: rgba(255,255,255,0.12);
       color: #aec2d6;
-      min-height: 120px;
-      font-size: 13px;
+      min-height: var(--kiosk-card-h, 90px);
+      font-size: var(--kiosk-base, 12px);
+      padding: 6px 4px;
     }
     body.kiosk .map-device-btn:hover {
       background: rgba(26,107,181,0.2);
@@ -1622,8 +1641,8 @@
       color: #c9f7d4;
       box-shadow: 0 0 0 1px rgba(141,240,160,0.35), 0 3px 18px rgba(39,168,69,0.3);
     }
-    body.kiosk .map-device-btn .map-device-icon { font-size: 38px; }
-    body.kiosk .map-device-btn .map-device-name { font-size: 13px; }
+    body.kiosk .map-device-btn .map-device-icon { font-size: var(--kiosk-icon, 30px); }
+    body.kiosk .map-device-btn .map-device-name { font-size: var(--kiosk-base, 12px); }
     body.kiosk .map-device-btn .map-dev-actions { display: none; }
 
     /* Botão de saída do kiosk — sempre visível no canto */
@@ -1769,7 +1788,7 @@
           Mostrar ocultos
         </label>
         <button class="mt-btn" onclick="openModal()">➕ Novo</button>
-        <button class="mt-btn primary" onclick="enterKioskMode()" title="Esconde tudo e deixa só o mapa (ideal p/ tablet de parede)">📺 Modo Quiosque</button>
+        <button class="mt-btn primary" onclick="enterKioskMode()" title="Esconde tudo e deixa só o mapa (ideal p/ tablet de parede)">📺 Tela cheia</button>
       </div>
 
       <div class="kiosk-clock" id="kioskClock">
@@ -2274,7 +2293,7 @@
 <div id="toast"></div>
 
 <!-- Botão de sair do modo quiosque (só aparece em body.kiosk) -->
-<button class="kiosk-exit-btn" id="kioskExitBtn" title="Sair do Modo Quiosque" onclick="exitKioskMode()">✕</button>
+<button class="kiosk-exit-btn" id="kioskExitBtn" title="Sair da Tela Cheia" onclick="exitKioskMode()">✕</button>
 
 <!-- ============================================================
      SCRIPT PRINCIPAL
@@ -2719,13 +2738,16 @@ function deviceCardHTML(d) {
       ${elapsedHtml}
       ${pulse ? '' : `<span class="source-badge ${sourceClass}">${sourceLabel}</span>`}
       ${pulse ? '' : timerHtml}
-      ${!pulse && d.status && !activeTimer ? `
-        <button class="timer-btn" onclick="openTimerModal('${d.id}')">⏲️ Desligar em…</button>
-      ` : ''}
-      ${extraControls ? `
-        <div class="card-controls">${extraControls}</div>
-        <button class="expand-btn" onclick="toggleExpand('${d.id}', this)">⚙️ Configurar ▾</button>
-      ` : ''}
+      ${
+        // Botões ⏲️ Desligar em… e ⚙️ Configurar ▾ escondidos —
+        // eram confusos porque os sliders/modos só funcionam se o
+        // Tuya device suporta os DPs específicos (raro com cena/IR).
+        // Mantemos só pra vacuum (cujos botões de Limpar/Pausar
+        // funcionam de verdade via updateDevice status).
+        d.type === 'vacuum' && extraControls ? `
+          <div class="card-controls" style="display:block">${extraControls}</div>
+        ` : ''
+      }
     </div>`;
 }
 
@@ -3137,6 +3159,12 @@ function renderMap() {
         <div class="map-devices">${btnsHtml}</div>
       </div>`;
   }).join('');
+
+  // Recalcula tamanhos de card após cada render no modo tela cheia
+  // (rooms foram recriados, CSS vars foram resetadas).
+  if (document.body.classList.contains('kiosk')) {
+    requestAnimationFrame(fitKioskLayout);
+  }
 }
 
 async function toggleMapDevice(id) {
@@ -3188,6 +3216,9 @@ function enterKioskMode(opts = {}) {
   switchView('mapa');
   renderMap();
   startKioskClock();
+  // Calcula tamanhos proporcionais e ouve resize
+  fitKioskLayout();
+  window.addEventListener('resize', fitKioskLayout);
 
   // Requesta fullscreen se possível (ignora falha silenciosamente)
   if (!opts.skipFullscreen && document.documentElement.requestFullscreen) {
@@ -3210,6 +3241,16 @@ function exitKioskMode() {
   document.body.classList.remove('kiosk');
   stopKioskClock();
   releaseWakeLock();
+  window.removeEventListener('resize', fitKioskLayout);
+  // Limpa as CSS vars customizadas
+  document.body.style.removeProperty('--kiosk-cols');
+  document.body.style.removeProperty('--kiosk-card-h');
+  document.body.style.removeProperty('--kiosk-icon');
+  document.body.style.removeProperty('--kiosk-base');
+  document.querySelectorAll('.map-room').forEach(el => {
+    el.style.removeProperty('--room-span');
+    el.style.removeProperty('--room-inner-cols');
+  });
   if (document.fullscreenElement && document.exitFullscreen) {
     document.exitFullscreen().catch(() => {});
   }
@@ -3217,6 +3258,69 @@ function exitKioskMode() {
   url.searchParams.delete('mode');
   history.replaceState(null, '', url.toString());
   localStorage.removeItem('casabem_kiosk');
+}
+
+// ============================================================
+// fitKioskLayout — calcula tamanhos pra tudo caber sem scroll
+// ------------------------------------------------------------
+// Estratégia:
+//  1. Mede a área útil (innerWidth × innerHeight menos relógio e padding).
+//  2. Conta N dispositivos visíveis e M cômodos.
+//  3. Distribui área proporcional ao nº de devices por cômodo:
+//     - cômodo com mais devices ocupa mais colunas.
+//  4. Calcula card size a partir de área total ÷ total de devices.
+//  5. Aplica como CSS custom properties.
+//
+// É "good enough" — não é matemático perfeito, mas evita scroll em
+// telas comuns (tablet 10", monitor 1080p/1440p).
+// ============================================================
+function fitKioskLayout() {
+  if (!document.body.classList.contains('kiosk')) return;
+  const floor = document.querySelector('#mapView .map-floor');
+  if (!floor) return;
+  const rooms = Array.from(floor.querySelectorAll('.map-room'));
+  if (!rooms.length) return;
+
+  const W = window.innerWidth  - 28;            // padding externo
+  const H = window.innerHeight - 28 - 56;       // reserva p/ relógio
+
+  // nº de dispositivos visíveis por cômodo (ignora hidden_in_map no kiosk)
+  const counts = rooms.map(r => r.querySelectorAll('.map-device-btn').length);
+  const totalDevices = counts.reduce((a, b) => a + b, 0) || 1;
+
+  // Quantas colunas de cômodo cabem? Depende do tamanho da tela.
+  // Alvo: cada cômodo com ~280-380px de largura.
+  const roomCols = Math.max(1, Math.min(6, Math.round(W / 340)));
+  document.body.style.setProperty('--kiosk-cols', roomCols);
+
+  // Distribui span entre os cômodos proporcional ao device count.
+  // Ao menos 1 col por cômodo. Se houver sobra de colunas, dá pros
+  // cômodos com mais devices.
+  const roomRows = Math.max(1, Math.ceil(rooms.length / roomCols));
+  const totalCells = roomCols * roomRows;
+  // fator = cells / totalDevices = área por device
+  const baseCellPerRoom = roomCols;  // total cols disponíveis por row
+  rooms.forEach((el, i) => {
+    // Span = proporção do cômodo sobre total, mas limitada a roomCols
+    const pct = counts[i] / totalDevices;
+    const rawSpan = Math.round(pct * baseCellPerRoom * roomRows);
+    const span = Math.max(1, Math.min(roomCols, rawSpan || 1));
+    el.style.setProperty('--room-span', span);
+
+    // Colunas internas de cada cômodo: sqrt(devices) arredondado.
+    const n = counts[i] || 1;
+    const innerCols = Math.max(1, Math.min(4, Math.ceil(Math.sqrt(n))));
+    el.style.setProperty('--room-inner-cols', innerCols);
+  });
+
+  // Tamanho de card: área total ÷ total devices, limites práticos.
+  // Reserva ~30% pra labels/padding/gaps.
+  const usable = W * H * 0.60;
+  const cardArea = usable / totalDevices;
+  const cardSide = Math.max(70, Math.min(180, Math.sqrt(cardArea)));
+  document.body.style.setProperty('--kiosk-card-h', `${Math.round(cardSide)}px`);
+  document.body.style.setProperty('--kiosk-icon',   `${Math.round(cardSide * 0.30)}px`);
+  document.body.style.setProperty('--kiosk-base',   `${Math.round(cardSide * 0.14)}px`);
 }
 
 function startKioskClock() {
