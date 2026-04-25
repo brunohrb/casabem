@@ -4056,7 +4056,48 @@ function wasRecentlyFired(deviceId, status) {
 // A tabela pending_timers é a fonte da verdade; o frontend só
 // exibe e permite cancelar.
 // ============================================================
-const pendingDeviceTimers = new Map();  // device_id (string) -> { id, action, fireAt, label }
+const pendingDeviceTimers = new Map();  // device_id (string) -> { id, action, fireAt, label, timeoutHandle }
+
+// Timer client-side: agenda um setTimeout no navegador. Mais confiável
+// que depender só do cron Supabase + timer-worker (que pode não estar
+// configurado ou atrasar). A row em pending_timers permanece como
+// backup pra caso o navegador feche antes do timer disparar.
+function scheduleClientTimer(deviceId, timerId, fireAtMs, action, label) {
+  const key = String(deviceId);
+  const existing = pendingDeviceTimers.get(key);
+  if (existing?.timeoutHandle) clearTimeout(existing.timeoutHandle);
+
+  const delay = Math.max(0, fireAtMs - Date.now());
+  const handle = setTimeout(async () => {
+    const dev = allDevices.find(d => d.id === deviceId);
+    if (!dev) { pendingDeviceTimers.delete(key); return; }
+    try {
+      // Best-effort: marca executed_at na DB pra cron não disparar duplicado.
+      if (timerId) {
+        await db.from('pending_timers')
+          .update({ executed_at: new Date().toISOString() })
+          .eq('id', timerId)
+          .is('executed_at', null);
+      }
+    } catch (e) { console.warn('exec mark failed', e); }
+    try {
+      await updateDevice(deviceId, { status: action === 'on' }, { source: 'manual_timer' });
+    } catch (e) { console.warn('update failed', e); }
+    pendingDeviceTimers.delete(key);
+    renderDevices();
+    showToast(`⏲️ ${dev.name}: timer disparou (${action === 'on' ? 'ligado' : 'desligado'})`, 'success');
+  }, delay);
+
+  const cur = pendingDeviceTimers.get(key) || {};
+  pendingDeviceTimers.set(key, {
+    ...cur,
+    id:            timerId,
+    action,
+    fireAt:        fireAtMs,
+    label:         label || cur.label || '',
+    timeoutHandle: handle,
+  });
+}
 
 async function loadPendingTimers() {
   try {
@@ -4067,15 +4108,24 @@ async function loadPendingTimers() {
       .is('cancelled_at', null)
       .order('fire_at', { ascending: true });
     if (error) throw error;
+    // Limpa setTimeouts antigos antes de recarregar
+    for (const t of pendingDeviceTimers.values()) {
+      if (t.timeoutHandle) clearTimeout(t.timeoutHandle);
+    }
     pendingDeviceTimers.clear();
     for (const t of data || []) {
+      const fireAtMs = new Date(t.fire_at).getTime();
       pendingDeviceTimers.set(String(t.device_id), {
-        id:     t.id,
-        action: t.action,
-        fireAt: new Date(t.fire_at).getTime(),
-        label:  t.label,
+        id:      t.id,
+        action:  t.action,
+        fireAt:  fireAtMs,
+        label:   t.label,
         rule_id: t.rule_id,
       });
+      // Se ainda não passou da hora, agenda no client (sobrevive a refresh)
+      if (fireAtMs > Date.now()) {
+        scheduleClientTimer(t.device_id, t.id, fireAtMs, t.action, t.label);
+      }
     }
   } catch (e) {
     // Tabela pode não existir ainda se a migração não rodou — modo degradado.
@@ -4133,6 +4183,8 @@ async function saveQuickTimer() {
   pendingDeviceTimers.set(String(device.id), {
     id: data.id, action, fireAt: Date.parse(fireAt), label,
   });
+  // Agenda o setTimeout client-side (não depende do cron Supabase)
+  scheduleClientTimer(device.id, data.id, Date.parse(fireAt), action, label);
   closeTimerModal();
   renderDevices();
   showToast(`⏲️ ${label} em ${formatElapsed(delaySec)}`, 'info');
@@ -4144,6 +4196,9 @@ async function cancelDeviceTimer(timerId, deviceId) {
       .update({ cancelled_at: new Date().toISOString() })
       .eq('id', timerId);
   }
+  // Limpa o setTimeout em memória se houver
+  const t = pendingDeviceTimers.get(String(deviceId));
+  if (t?.timeoutHandle) clearTimeout(t.timeoutHandle);
   pendingDeviceTimers.delete(String(deviceId));
   renderDevices();
   showToast('Timer cancelado', 'info');
@@ -4157,6 +4212,8 @@ async function cancelDeviceTimersForDevice(deviceId) {
       .is('executed_at', null)
       .is('cancelled_at', null);
   } catch (e) { /* tabela pode não existir */ }
+  const t = pendingDeviceTimers.get(String(deviceId));
+  if (t?.timeoutHandle) clearTimeout(t.timeoutHandle);
   pendingDeviceTimers.delete(String(deviceId));
 }
 
