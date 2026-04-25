@@ -2062,10 +2062,13 @@
     </div>
 
     <div class="form-row">
-      <label>Neste dispositivo</label>
-      <select id="ruleTargetDevice">
-        <option value="__same__">🔁 Mesmo do gatilho</option>
-      </select>
+      <label>Neste(s) dispositivo(s) <small style="color:var(--text2)">(marque um ou vários)</small></label>
+      <div id="ruleTargetDevices" class="channel-checks" style="grid-template-columns:1fr;max-height:240px;overflow-y:auto;gap:6px">
+        <!-- populado por openRuleModal -->
+      </div>
+      <small style="color:var(--text2);font-size:11px;margin-top:4px;display:block">
+        Marque <b>"🔁 Mesmo do gatilho"</b> pra agir no próprio dispositivo que ligou.
+      </small>
     </div>
 
     <div class="modal-actions">
@@ -3772,10 +3775,15 @@ function renderRules() {
   }
 
   el.innerHTML = rules.map(r => {
-    const trig   = allDevices.find(d => d.id === r.trigger_device_id);
-    const target = allDevices.find(d => d.id === r.target_device_id);
-    const trigName   = trig   ? trig.name   : '⚠️ dispositivo removido';
-    const targetName = target ? target.name : '⚠️ dispositivo removido';
+    const trig = allDevices.find(d => d.id === r.trigger_device_id);
+    const trigName = trig ? trig.name : '⚠️ dispositivo removido';
+    // target_device_ids (array) é o novo formato; cai no legado se faltar
+    const targetIds = r.target_device_ids || (r.target_device_id ? [r.target_device_id] : []);
+    const targetNames = targetIds.map(tid => {
+      if (tid === '__same__') return '🔁 ' + trigName;
+      const t = allDevices.find(d => d.id === tid);
+      return t ? t.name : '⚠️ removido';
+    });
     const delayLabel = formatDelay(r.delay_seconds);
     const pending    = pendingRuleTimers.get(r.id);
     const runningCls = pending ? ' running' : '';
@@ -3786,6 +3794,8 @@ function renderRules() {
         <div class="rule-head">
           <span class="rule-name">${r.enabled ? '🟢' : '⚪'} ${escapeHtml(r.name)}</span>
           <div class="rule-actions">
+            <button class="rule-btn" title="Editar"
+              onclick="openRuleModal('${r.id}')">✏️</button>
             <button class="rule-btn" title="${r.enabled ? 'Desativar' : 'Ativar'}"
               onclick="toggleRule('${r.id}')">${r.enabled ? '⏸️' : '▶️'}</button>
             <button class="rule-btn del" title="Excluir"
@@ -3797,7 +3807,7 @@ function renderRules() {
           ${r.trigger_event === 'on' ? 'ligar' : 'desligar'},
           após <span class="pill">${delayLabel}</span>
           ${r.action_event === 'on' ? 'ligar' : 'desligar'}
-          <span class="pill">${escapeHtml(targetName)}</span>.
+          ${targetNames.map(n => `<span class="pill">${escapeHtml(n)}</span>`).join(' ')}.
         </div>
         ${pending ? `<div class="rule-countdown" id="rc-${r.id}">⏱️ Disparando em ${Math.ceil((pending.endsAt - Date.now())/1000)}s</div>` : ''}
       </div>`;
@@ -3816,33 +3826,58 @@ function escapeHtml(s) {
   ));
 }
 
-function openRuleModal() {
+function openRuleModal(existingRuleId) {
   if (allDevices.length === 0) {
     showToast('Cadastre pelo menos um dispositivo antes', 'error');
     return;
   }
   const trig = document.getElementById('ruleTriggerDevice');
-  const tgt  = document.getElementById('ruleTargetDevice');
-  // Opções de dispositivo
+  const tgtBox = document.getElementById('ruleTargetDevices');
+  // Opções de dispositivo no select de gatilho
   const opts = allDevices.map(d =>
-    `<option value="${d.id}">${d.name} · ${d.room}</option>`
+    `<option value="${d.id}">${escapeHtml(d.name)} · ${escapeHtml(d.room)}</option>`
   ).join('');
   trig.innerHTML = opts;
-  tgt.innerHTML  = `<option value="__same__">🔁 Mesmo do gatilho</option>` + opts;
+
+  // Lista de checkboxes pros alvos: "Mesmo" + cada device
+  const existingRule = existingRuleId ? loadRules().find(r => r.id === existingRuleId) : null;
+  const preTargets = existingRule
+    ? (existingRule.target_device_ids || (existingRule.target_device_id ? [existingRule.target_device_id] : []))
+    : [];
+  tgtBox.innerHTML = `
+    <label><input type="checkbox" value="__same__" ${preTargets.includes('__same__') ? 'checked' : ''} />
+      🔁 <b>Mesmo do gatilho</b></label>
+    ${allDevices.map(d => `
+      <label><input type="checkbox" value="${d.id}" ${preTargets.includes(d.id) ? 'checked' : ''} />
+        ${escapeHtml(d.name)} <small style="color:var(--text2)">· ${escapeHtml(d.room)}</small></label>
+    `).join('')}
+  `;
 
   // Pré-seleção inteligente: se houver "Cristaleira", usa ela
   const cristal = allDevices.find(d => /cristaleira/i.test(d.name));
-  if (cristal) {
-    trig.value = cristal.id;
-    document.getElementById('ruleName').value = `${cristal.name} - auto desliga`;
+  if (existingRule) {
+    document.getElementById('ruleName').value = existingRule.name;
+    trig.value = existingRule.trigger_device_id;
+    document.getElementById('ruleTriggerEvent').value = existingRule.trigger_event;
+    document.getElementById('ruleActionEvent').value  = existingRule.action_event;
+    // Quebra delay em valor + unidade legível
+    const s = existingRule.delay_seconds;
+    const unit = s % 3600 === 0 ? 3600 : s % 60 === 0 ? 60 : 1;
+    document.getElementById('ruleDelayUnit').value  = String(unit);
+    document.getElementById('ruleDelayValue').value = Math.round(s / unit);
   } else {
-    document.getElementById('ruleName').value = '';
+    if (cristal) {
+      trig.value = cristal.id;
+      document.getElementById('ruleName').value = `${cristal.name} - auto desliga`;
+    } else {
+      document.getElementById('ruleName').value = '';
+    }
+    document.getElementById('ruleDelayValue').value = 1;
+    document.getElementById('ruleDelayUnit').value  = '60';
+    document.getElementById('ruleTriggerEvent').value = 'on';
+    document.getElementById('ruleActionEvent').value  = 'off';
   }
-
-  document.getElementById('ruleDelayValue').value = 1;
-  document.getElementById('ruleDelayUnit').value  = '60';
-  document.getElementById('ruleTriggerEvent').value = 'on';
-  document.getElementById('ruleActionEvent').value  = 'off';
+  document.getElementById('ruleModalOverlay').dataset.editingId = existingRuleId || '';
   document.getElementById('ruleModalOverlay').classList.add('open');
   setTimeout(() => document.getElementById('ruleName').focus(), 100);
 }
@@ -3858,32 +3893,48 @@ function saveRule() {
   const delayV  = parseInt(document.getElementById('ruleDelayValue').value, 10);
   const unit    = parseInt(document.getElementById('ruleDelayUnit').value, 10);
   const actEv   = document.getElementById('ruleActionEvent').value;
-  let tgt       = document.getElementById('ruleTargetDevice').value;
+
+  // Coleta TODOS os checkboxes marcados na lista de alvos
+  const tgtIds = Array.from(
+    document.querySelectorAll('#ruleTargetDevices input[type=checkbox]:checked')
+  ).map(cb => cb.value);
 
   if (!name || !trig || !delayV || delayV < 1) {
-    showToast('Preencha todos os campos', 'error');
+    showToast('Preencha nome, gatilho e tempo', 'error');
     return;
   }
-  if (tgt === '__same__') tgt = trig;
+  if (tgtIds.length === 0) {
+    showToast('Marque pelo menos um dispositivo alvo', 'error');
+    return;
+  }
 
-  const rule = {
-    id: 'r_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6),
+  const editingId = document.getElementById('ruleModalOverlay').dataset.editingId || '';
+  const rules = loadRules();
+  const baseFields = {
     name,
-    trigger_device_id: trig,
-    trigger_event:     trigEv,
-    delay_seconds:     delayV * unit,
-    action_event:      actEv,
-    target_device_id:  tgt,
+    trigger_device_id:  trig,
+    trigger_event:      trigEv,
+    delay_seconds:      delayV * unit,
+    action_event:       actEv,
+    target_device_ids:  tgtIds,                  // novo: array
+    target_device_id:   tgtIds[0] === '__same__' ? trig : tgtIds[0], // legado p/ compat
     enabled: true,
-    created_at: new Date().toISOString(),
   };
 
-  const rules = loadRules();
-  rules.push(rule);
+  if (editingId) {
+    const idx = rules.findIndex(r => r.id === editingId);
+    if (idx >= 0) rules[idx] = { ...rules[idx], ...baseFields };
+  } else {
+    rules.push({
+      id: 'r_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6),
+      ...baseFields,
+      created_at: new Date().toISOString(),
+    });
+  }
   saveRules(rules);
   renderRules();
   closeRuleModal();
-  showToast(`✅ Regra "${name}" criada`, 'success');
+  showToast(`✅ Regra "${name}" ${editingId ? 'atualizada' : 'criada'}`, 'success');
 }
 
 function toggleRule(id) {
@@ -3949,55 +4000,68 @@ async function evaluateRules(deviceId, newStatus) {
     // Reinicia timer (sobrescreve pendente)
     cancelRuleTimer(r.id);
 
-    const target = allDevices.find(d => d.id === r.target_device_id);
-    if (!target) continue;
+    // Resolve a lista de alvos (novo formato target_device_ids; cai no
+    // antigo target_device_id se faltar). Expande "__same__" pro id do trigger.
+    const rawIds = r.target_device_ids || (r.target_device_id ? [r.target_device_id] : []);
+    const targetIds = rawIds.map(tid => tid === '__same__' ? r.trigger_device_id : tid);
+    const targets = targetIds
+      .map(tid => allDevices.find(d => d.id === tid))
+      .filter(Boolean);
+    if (targets.length === 0) continue;
 
     const endsAt = Date.now() + r.delay_seconds * 1000;
     const fireAt = new Date(endsAt).toISOString();
 
-    // 1. Persiste no banco (sobrevive ao fechamento do app)
-    let persistedId = null;
-    try {
-      const { data, error } = await db.from('pending_timers').insert({
-        device_id:   r.target_device_id,
-        device_name: target.name,
-        action:      r.action_event,
-        fire_at:     fireAt,
-        label:       r.name,
-        source:      'rule',
-        rule_id:     r.id,
-      }).select().single();
-      if (!error && data) persistedId = data.id;
-    } catch (e) {
-      console.warn('pending_timers indisponível, caindo pro setTimeout', e);
+    // Cria 1 entrada de pending_timers por alvo, persistido no banco
+    const persistedIds = [];
+    for (const tg of targets) {
+      try {
+        const { data, error } = await db.from('pending_timers').insert({
+          device_id:   tg.id,
+          device_name: tg.name,
+          action:      r.action_event,
+          fire_at:     fireAt,
+          label:       r.name,
+          source:      'rule',
+          rule_id:     r.id,
+        }).select().single();
+        if (!error && data) persistedIds.push({ id: data.id, target: tg });
+      } catch (e) {
+        console.warn('pending_timers indisponível, fallback setTimeout', e);
+      }
     }
 
-    // 2. Fallback em memória (executa mais rápido se o app estiver aberto)
+    // setTimeout único pra disparar TODOS os alvos juntos
     const timeoutId = setTimeout(async () => {
       pendingRuleTimers.delete(r.id);
-      // Marca como executado no banco pra não duplicar com o worker
-      if (persistedId) {
+      for (const { id: pid, target: tg } of (persistedIds.length ? persistedIds : targets.map(tg => ({ id: null, target: tg })))) {
+        if (pid) {
+          try {
+            const { data: locked } = await db.from('pending_timers')
+              .update({ executed_at: new Date().toISOString() })
+              .eq('id', pid)
+              .is('executed_at', null)
+              .is('cancelled_at', null)
+              .select('id').single();
+            if (!locked) continue;  // worker já pegou esse alvo específico
+          } catch (e) { /* ignora */ }
+        }
         try {
-          const { data: locked } = await db.from('pending_timers')
-            .update({ executed_at: new Date().toISOString() })
-            .eq('id', persistedId)
-            .is('executed_at', null)
-            .is('cancelled_at', null)
-            .select('id').single();
-          if (!locked) { renderRules(); return; }  // worker já pegou
-        } catch (e) { /* ignora */ }
+          await updateDevice(tg.id, { status: r.action_event === 'on' }, { source: 'rule' });
+        } catch (e) { console.warn('Rule fire error pra', tg.name, e); }
       }
-      try {
-        await updateDevice(r.target_device_id, { status: r.action_event === 'on' }, { source: 'rule' });
-        showToast(`🤖 "${r.name}" executada`, 'success');
-      } catch (e) { console.warn('Rule fire error', e); }
+      showToast(`🤖 "${r.name}" → ${targets.length} dispositivo(s)`, 'success');
       renderRules();
     }, r.delay_seconds * 1000);
 
-    pendingRuleTimers.set(r.id, { timeoutId, endsAt, persistedId });
-    pendingDeviceTimers.set(String(r.target_device_id), {
-      id: persistedId, action: r.action_event, fireAt: endsAt, label: r.name, rule_id: r.id,
-    });
+    pendingRuleTimers.set(r.id, { timeoutId, endsAt, persistedIds });
+    // Marca cada alvo como tendo timer pendente (pro card mostrar countdown)
+    for (const tg of targets) {
+      pendingDeviceTimers.set(String(tg.id), {
+        id: persistedIds.find(p => p.target.id === tg.id)?.id || null,
+        action: r.action_event, fireAt: endsAt, label: r.name, rule_id: r.id,
+      });
+    }
 
     showToast(`⏱️ "${r.name}" em ${formatDelay(r.delay_seconds)}`, 'info');
     renderRules(); renderDevices();
