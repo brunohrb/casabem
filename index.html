@@ -3062,32 +3062,35 @@ async function fireVacuumVM(deviceId, action) {
     let json;
     try { json = await r.json(); } catch (_) { json = { raw: await r.text() }; }
 
+    console.log('[VoiceMonkey] resposta:', { status: r.status, ok: r.ok, body: json });
+
     if (r.ok && (json.status === 'success' || json.success === true || !json.error)) {
       showToast(`${labels[action] || action} → ${device.name}`, 'success');
-      // Log opcional
-      db.from('commands_log').insert({
+      // Log best-effort (Postgrest builder é PromiseLike, .catch direto não existe)
+      try { await db.from('commands_log').insert({
         device_id:   device.id,
         device_name: device.name,
         command:     `Painel: VM ${action} (${triggerId})`,
         source:      'dashboard',
         success:     true,
-      }).catch(() => {});
+      }); } catch (_) {}
       // Reflete localmente o "ligado/parado" no card pra UI ficar coerente
       if (action === 'start' || action === 'pause') {
         const newStatus = action === 'start';
         if (device.status !== newStatus) {
-          await db.from('devices').update({ status: newStatus }).eq('id', device.id);
+          try { await db.from('devices').update({ status: newStatus }).eq('id', device.id); } catch (_) {}
           device.status = newStatus;
           renderDevices();
         }
       }
     } else {
-      const msg = json.error || json.message || `HTTP ${r.status}`;
-      showToast(`Erro Voice Monkey: ${msg}`, 'error');
+      const msg = json.error || json.message || json.raw || `HTTP ${r.status}`;
+      showToast(`Voice Monkey: ${msg}`, 'error');
       console.warn('Voice Monkey response:', json);
     }
   } catch (e) {
-    showToast(`Rede falhou: ${e.message}`, 'error');
+    showToast(`Falha JS: ${e.message}`, 'error');
+    console.warn('fireVacuumVM error', e);
   }
 }
 
