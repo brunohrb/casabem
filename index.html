@@ -3257,14 +3257,19 @@ async function vacuumLocate(id) {
 // ============================================================
 async function ligarTudo() {
   if (allDevices.length === 0) return;
+  // Pula TVs: como o IR de TV é Power toggle, "ligar" pode acabar
+  // desligando se o estado real divergir do que o sistema acha.
+  // Pra ligar TV especificamente, usa o botão ⚡ Power do card.
   for (const d of allDevices) {
+    if (d.type === 'tv') continue;
     if (!d.status) await updateDevice(d.id, { status: true });
   }
-  showToast('Tudo ligado! 💡', 'success');
+  showToast('Tudo ligado (menos TVs) 💡', 'success');
 }
 
 async function desligarTudo() {
   for (const d of allDevices) {
+    if (d.type === 'tv') continue;             // mesma razão acima
     if (d.status) await updateDevice(d.id, { status: false });
   }
   showToast('Casa no modo economia 🌙', 'info');
