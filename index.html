@@ -2297,6 +2297,18 @@
         Clique aqui se criou uma cena nova no SmartLife e quer atualizar os dropdowns.
       </small>
     </div>
+    <div class="form-row" id="editDeviceVMWrap" style="display:none;border-top:1px dashed var(--border);padding-top:12px">
+      <label>🤖 Voice Monkey <small style="color:var(--text2)">(p/ aspirador via Alexa)</small></label>
+      <input type="text" id="editDeviceVMToken" placeholder="API Token (Voice Monkey → Settings → API Credentials)" />
+      <input type="text" id="editDeviceVMPrefix" placeholder="Prefixo dos triggers (ex: s10)" style="margin-top:6px" />
+      <small style="color:var(--text2);font-size:11px;margin-top:6px;display:block">
+        Os 4 botões do card vão disparar:
+        <code>{prefix}start</code>, <code>{prefix}pause</code>,
+        <code>{prefix}dock</code>, <code>{prefix}locate</code>.<br>
+        Crie esses 4 Routine Triggers no voicemonkey.io e 4 Rotinas
+        Alexa correspondentes ligadas ao seu robô.
+      </small>
+    </div>
     <div class="form-row">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none">
         <input type="checkbox" id="editDeviceHiddenInMap" />
@@ -2771,16 +2783,25 @@ function deviceCardHTML(d) {
   }
 
   if (d.type === 'vacuum') {
+    // Se o vacuum tem vm_token+vm_prefix configurados, usa Voice Monkey
+    // (ponte via Alexa pra Mi Home/Roborock). Senão cai no Tuya direto.
+    const useVM = d.vm_token && d.vm_prefix;
+    const onClick = (act) => useVM
+      ? `fireVacuumVM('${d.id}','${act}')`
+      : (act === 'start' ? `updateDevice('${d.id}',{status:true})`
+        : act === 'pause' ? `updateDevice('${d.id}',{status:false})`
+        : act === 'dock'  ? `vacuumDock('${d.id}')`
+        : `vacuumLocate('${d.id}')`);
     extraControls = `
       <div class="mode-btns">
         <button class="mode-btn ${d.status ? 'active' : ''}"
-          onclick="updateDevice('${d.id}',{status:true})">🧹 Limpar</button>
+          onclick="${onClick('start')}">🧹 Limpar</button>
         <button class="mode-btn"
-          onclick="updateDevice('${d.id}',{status:false})">⏸️ Pausar</button>
+          onclick="${onClick('pause')}">⏸️ Pausar</button>
         <button class="mode-btn"
-          onclick="vacuumDock('${d.id}')">🏠 Voltar à base</button>
+          onclick="${onClick('dock')}">🏠 Voltar à base</button>
         <button class="mode-btn"
-          onclick="vacuumLocate('${d.id}')">📍 Localizar</button>
+          onclick="${onClick('locate')}">📍 Localizar</button>
       </div>`;
   }
 
@@ -3013,6 +3034,60 @@ async function fireRoomScene(encodedRoom, which) {
       btn.disabled = false;
       btn.textContent = btn.dataset._orig || (which === 'on' ? '💡 Ligar' : '🌙 Apagar');
     }
+  }
+}
+
+// ============================================================
+// VOICE MONKEY (vacuum via Alexa)
+// ------------------------------------------------------------
+// POST pra api-v2.voicemonkey.io/trigger com token + device_id.
+// Cada device_id corresponde a uma Routine na Alexa que executa
+// o comando real no S10+ via skill Mi Home.
+// ============================================================
+async function fireVacuumVM(deviceId, action) {
+  const device = allDevices.find(d => d.id === deviceId);
+  if (!device || !device.vm_token || !device.vm_prefix) {
+    showToast('Voice Monkey não configurado neste dispositivo', 'error');
+    return;
+  }
+  const triggerId = `${device.vm_prefix}${action}`;          // ex: s10start
+  const labels = { start:'🧹 Limpar', pause:'⏸️ Pausar', dock:'🏠 Base', locate:'📍 Localizar' };
+
+  try {
+    const r = await fetch('https://api-v2.voicemonkey.io/trigger', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: device.vm_token, device: triggerId }),
+    });
+    let json;
+    try { json = await r.json(); } catch (_) { json = { raw: await r.text() }; }
+
+    if (r.ok && (json.status === 'success' || json.success === true || !json.error)) {
+      showToast(`${labels[action] || action} → ${device.name}`, 'success');
+      // Log opcional
+      db.from('commands_log').insert({
+        device_id:   device.id,
+        device_name: device.name,
+        command:     `Painel: VM ${action} (${triggerId})`,
+        source:      'dashboard',
+        success:     true,
+      }).catch(() => {});
+      // Reflete localmente o "ligado/parado" no card pra UI ficar coerente
+      if (action === 'start' || action === 'pause') {
+        const newStatus = action === 'start';
+        if (device.status !== newStatus) {
+          await db.from('devices').update({ status: newStatus }).eq('id', device.id);
+          device.status = newStatus;
+          renderDevices();
+        }
+      }
+    } else {
+      const msg = json.error || json.message || `HTTP ${r.status}`;
+      showToast(`Erro Voice Monkey: ${msg}`, 'error');
+      console.warn('Voice Monkey response:', json);
+    }
+  } catch (e) {
+    showToast(`Rede falhou: ${e.message}`, 'error');
   }
 }
 
@@ -4719,6 +4794,13 @@ function openEditDeviceModal(id) {
   setChannelChecks('editDeviceTuyaSwitchCodes', d.tuya_switch_code);
   document.getElementById('editDeviceIrParentId').value     = d.ir_parent_id || '';
   document.getElementById('editDeviceHiddenInMap').checked  = !!d.hidden_in_map;
+
+  // Voice Monkey só faz sentido pra vacuum (e talvez "other" no futuro)
+  const vmWrap = document.getElementById('editDeviceVMWrap');
+  vmWrap.style.display = d.type === 'vacuum' ? 'block' : 'none';
+  document.getElementById('editDeviceVMToken').value  = d.vm_token  || '';
+  document.getElementById('editDeviceVMPrefix').value = d.vm_prefix || '';
+
   document.getElementById('editDeviceModalOverlay').classList.add('open');
   setTimeout(() => document.getElementById('editDeviceName').focus(), 100);
 
@@ -4744,6 +4826,8 @@ async function saveEditingDevice() {
   const sceneOn  = document.getElementById('editDeviceSceneOn').value || null;
   const sceneOff = document.getElementById('editDeviceSceneOff').value || null;
   const hidden   = document.getElementById('editDeviceHiddenInMap').checked;
+  const vmToken  = document.getElementById('editDeviceVMToken').value.trim()  || null;
+  const vmPrefix = document.getElementById('editDeviceVMPrefix').value.trim() || null;
   if (!name || !room) { showToast('Preencha nome e cômodo', 'error'); return; }
 
   const patch = {
@@ -4753,6 +4837,8 @@ async function saveEditingDevice() {
     ir_parent_id:     irHub,
     scene_on_id:      sceneOn,
     scene_off_id:     sceneOff,
+    vm_token:         vmToken,
+    vm_prefix:        vmPrefix,
     hidden_in_map:    hidden,
   };
   const { error } = await db.from('devices').update(patch).eq('id', editingDeviceId);
