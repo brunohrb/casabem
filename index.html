@@ -1623,37 +1623,39 @@
     body.kiosk #listaView { display: none !important; }
     body.kiosk #mapView { display: block !important; padding: 18px; }
 
-    /* Modo Tela cheia: layout flex com basis proporcional à
-       quantidade de devices em cada cômodo. Card size calculado
-       por fitKioskLayout() pra encaixar tudo sem scroll. */
+    /* Modo Tela cheia: layout CSS columns (masonry-style nativo).
+       O navegador balanceia os cômodos entre as colunas otimizando
+       altura — cômodos pequenos packam juntos, sem buracos.
+       cardSide ajustado por JS pra caber sem scroll. */
     body.kiosk {
-      overflow: hidden;                 /* sem scroll externo */
-    }
-    body.kiosk #mapView { overflow: hidden; height: 100vh; padding: 14px !important; }
-    body.kiosk .map-wrapper { max-width: none; height: 100%; }
-    body.kiosk .map-floor {
-      display: flex;
-      flex-wrap: wrap;
-      align-content: flex-start;
-      gap: 10px;
-      height: auto;
-      max-height: 100%;
       overflow: hidden;
     }
+    body.kiosk #mapView { overflow: hidden; height: 100vh; padding: 12px !important; }
+    body.kiosk .map-wrapper { max-width: none; height: 100%; }
+    body.kiosk .map-floor {
+      display: block;
+      column-width: var(--kiosk-col-w, 280px);
+      column-gap: 10px;
+      column-fill: balance;
+      height: calc(100vh - 64px);     /* reserva pro relógio em cima */
+    }
     body.kiosk .map-room {
+      display: block;
+      break-inside: avoid;
+      -webkit-column-break-inside: avoid;
+      page-break-inside: avoid;
       background: rgba(255,255,255,0.04);
       border-color: rgba(255,255,255,0.12);
       color: #e6edf5;
-      display: flex;
-      flex-direction: column;
-      padding: 10px;
-      overflow: hidden;
-      /* flex-basis e height ajustados pelo JS */
+      padding: 8px 10px;
+      margin: 0 0 10px 0;
     }
     body.kiosk .map-room-label {
       color: #e6edf5;
       border-bottom-color: rgba(255,255,255,0.12);
-      font-size: calc(var(--kiosk-base, 14px) * 1.15);
+      font-size: var(--kiosk-label, 14px);
+      padding-bottom: 6px;
+      margin-bottom: 6px;
     }
     body.kiosk .map-room-label .mr-count {
       background: rgba(255,255,255,0.08);
@@ -1666,18 +1668,17 @@
     body.kiosk .map-devices {
       display: grid;
       grid-template-columns: repeat(var(--room-inner-cols, 2), 1fr);
-      flex: 1;
-      align-content: start;
-      gap: 8px;
+      gap: 6px;
     }
     body.kiosk .map-device-btn {
       background: rgba(255,255,255,0.05);
       border-color: rgba(255,255,255,0.12);
       color: #aec2d6;
-      height: var(--kiosk-card-h, 90px);
+      height: var(--kiosk-card-h, 80px);
       min-height: 0;
-      font-size: var(--kiosk-base, 12px);
-      padding: 6px 4px;
+      font-size: var(--kiosk-base, 11px);
+      padding: 4px 4px 4px;
+      gap: 2px;
     }
     body.kiosk .map-device-btn:hover {
       background: rgba(26,107,181,0.2);
@@ -1690,8 +1691,9 @@
       color: #c9f7d4;
       box-shadow: 0 0 0 1px rgba(141,240,160,0.35), 0 3px 18px rgba(39,168,69,0.3);
     }
-    body.kiosk .map-device-btn .map-device-icon { font-size: var(--kiosk-icon, 30px); }
-    body.kiosk .map-device-btn .map-device-name { font-size: var(--kiosk-base, 12px); }
+    body.kiosk .map-device-btn .map-device-icon { font-size: var(--kiosk-icon, 24px); }
+    body.kiosk .map-device-btn .map-device-name { font-size: var(--kiosk-base, 11px); line-height: 1.1; }
+    body.kiosk .map-device-btn .map-device-sub  { display: none; }    /* "Desligado" sumir pra economizar espaço */
     body.kiosk .map-device-btn .map-dev-actions { display: none; }
 
     /* Botão de saída do kiosk — sempre visível no canto */
@@ -3587,6 +3589,8 @@ function exitKioskMode() {
   document.body.style.removeProperty('--kiosk-card-h');
   document.body.style.removeProperty('--kiosk-icon');
   document.body.style.removeProperty('--kiosk-base');
+  document.body.style.removeProperty('--kiosk-label');
+  document.body.style.removeProperty('--kiosk-col-w');
   document.querySelectorAll('.map-room').forEach(el => {
     el.style.removeProperty('flex');
     el.style.removeProperty('height');
@@ -3604,12 +3608,14 @@ function exitKioskMode() {
 // ============================================================
 // fitKioskLayout — calcula tamanhos pra tudo caber sem scroll
 // ------------------------------------------------------------
-// Estratégia: binary search em cardSide (min 50px, max 140px)
-// buscando a maior dimensão tal que:
-//   (a) Largura total usada ≤ W (senão quebra linha)
-//   (b) Altura total usada ≤ H (senão há scroll)
-// Cômodos organizados em flex-wrap. Cada cômodo tem innerCols =
-// ceil(sqrt(n_devices)), grid quadrado por dentro.
+// Estratégia simplificada: CSS columns faz o packing automaticamente
+// (masonry nativo). JS só precisa decidir:
+//   1. column-width (largura mínima de cada coluna)
+//   2. cardSide (altura de cada card de device)
+//   3. innerCols por cômodo (2 cards por linha — fixo, fica denso)
+//
+// Calcula área disponível, estima altura total das rooms se cardSide=X,
+// busca binariamente o maior X que faz a altura coluna ≤ H.
 // ============================================================
 function fitKioskLayout() {
   if (!document.body.classList.contains('kiosk')) return;
@@ -3618,70 +3624,60 @@ function fitKioskLayout() {
   const rooms = Array.from(floor.querySelectorAll('.map-room'));
   if (!rooms.length) return;
 
-  const W = window.innerWidth  - 28;             // padding externo do #mapView
-  const H = window.innerHeight - 28 - 60;        // -28 padding, -60 p/ relógio
+  const W = window.innerWidth  - 24;
+  const H = window.innerHeight - 64 - 24;
+
+  // 2 cards por linha por cômodo: bem compacto e visualmente uniforme
+  const INNER_COLS = 2;
+  rooms.forEach(el => el.style.setProperty('--room-inner-cols', INNER_COLS));
 
   const counts = rooms.map(r => r.querySelectorAll('.map-device-btn').length);
+  const totalDevices = counts.reduce((a, b) => a + b, 0) || 1;
 
-  // Simula o layout dado um cardSide. Retorna altura total ocupada
-  // e as dimensões de cada cômodo pra aplicar depois.
-  function layoutAt(cardSide) {
-    const gap       = 8;
-    const roomPadX  = 20;     // padding horizontal interno do .map-room (10+10)
-    const roomPadY  = 20;     // padding vertical
-    const labelH    = 32;     // altura do title do cômodo
+  // Decide quantas colunas de cômodo (page columns) cabem.
+  // Cada coluna alvo: 240-340px de largura.
+  const colCount = Math.max(2, Math.min(6, Math.round(W / 290)));
+  const colW = Math.floor((W - (colCount - 1) * 10) / colCount);
+  document.body.style.setProperty('--kiosk-col-w', `${colW}px`);
 
-    const roomSizes = rooms.map((_, i) => {
-      const n = counts[i] || 1;
-      const innerCols = Math.max(1, Math.min(5, Math.ceil(Math.sqrt(n))));
-      const innerRows = Math.ceil(n / innerCols);
-      const roomW = innerCols * cardSide + (innerCols - 1) * gap + roomPadX;
-      const roomH = labelH + innerRows * cardSide + (innerRows - 1) * gap + roomPadY;
-      return { w: roomW, h: roomH, innerCols };
+  // Altura total das rooms se cardSide=s, divididas entre colCount colunas.
+  // Cada room: header(28) + ceil(n/INNER_COLS)*s + (rows-1)*6 + padding(16) + margin-bottom(10).
+  function layoutHeight(s) {
+    const headerH = 28;
+    const padY    = 16;
+    const margin  = 10;
+    const innerGap = 6;
+
+    const heights = counts.map(n => {
+      const rows = Math.ceil(n / INNER_COLS);
+      return headerH + padY + rows * s + (rows - 1) * innerGap + margin;
     });
-
-    // Simula flex-wrap
-    let lineW = 0, lineH = 0, totalH = 0;
-    for (const s of roomSizes) {
-      if (lineW + s.w + gap > W && lineW > 0) {
-        totalH += lineH + gap;
-        lineW = s.w + gap;
-        lineH = s.h;
-      } else {
-        lineW += s.w + gap;
-        lineH = Math.max(lineH, s.h);
-      }
+    // Distribui rooms entre colCount colunas tentando minimizar altura máx.
+    // Heurística simples: ordena desc e distribui na coluna mais curta.
+    const sorted = [...heights].sort((a, b) => b - a);
+    const colsH = Array(colCount).fill(0);
+    for (const h of sorted) {
+      let minIdx = 0;
+      for (let i = 1; i < colCount; i++) if (colsH[i] < colsH[minIdx]) minIdx = i;
+      colsH[minIdx] += h;
     }
-    totalH += lineH;
-    return { totalH, roomSizes };
+    return Math.max(...colsH);
   }
 
-  // Binary search por cardSide que faz totalH ≤ H.
-  // Limites generosos pra baixo e teto razoável pra não ficar gigante.
-  let lo = 50, hi = 140, best = lo, bestLayout = layoutAt(lo);
-  for (let iter = 0; iter < 20; iter++) {
+  // Binary search: maior cardSide tal que layoutHeight(s) ≤ H
+  let lo = 50, hi = 130, best = lo;
+  for (let iter = 0; iter < 18; iter++) {
     const mid = Math.floor((lo + hi) / 2);
-    const layout = layoutAt(mid);
-    if (layout.totalH <= H) {
-      best = mid;
-      bestLayout = layout;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
+    if (layoutHeight(mid) <= H) { best = mid; lo = mid + 1; }
+    else hi = mid - 1;
     if (lo > hi) break;
   }
 
   const cardSide = best;
-  rooms.forEach((el, i) => {
-    const s = bestLayout.roomSizes[i];
-    el.style.flex   = `0 0 ${Math.round(s.w)}px`;
-    el.style.height = `${Math.round(s.h)}px`;
-    el.style.setProperty('--room-inner-cols', s.innerCols);
-  });
   document.body.style.setProperty('--kiosk-card-h', `${cardSide}px`);
-  document.body.style.setProperty('--kiosk-icon',   `${Math.round(cardSide * 0.34)}px`);
-  document.body.style.setProperty('--kiosk-base',   `${Math.round(cardSide * 0.13)}px`);
+  document.body.style.setProperty('--kiosk-icon',   `${Math.round(cardSide * 0.32)}px`);
+  document.body.style.setProperty('--kiosk-base',   `${Math.max(10, Math.round(cardSide * 0.13))}px`);
+  document.body.style.setProperty('--kiosk-label',  `${Math.max(12, Math.round(cardSide * 0.16))}px`);
 }
 
 function startKioskClock() {
