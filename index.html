@@ -2742,6 +2742,11 @@ function deviceCardHTML(d) {
   // botão único ⚡ Power que dispara o comando sem pretender saber estado.
   const pulse = d.type === 'tv' || (!!d.scene_on_id && !d.scene_off_id);
 
+  // Vacuum com Voice Monkey: o toggle vira atalho pros 2 comandos
+  // (ON → start, OFF → dock). Os botões do card continuam disponíveis
+  // pra quem prefere clicar neles.
+  const isVacuumVM = d.type === 'vacuum' && d.vm_token && d.vm_prefix;
+
   let extraControls = '';
 
   if (d.type === 'light') {
@@ -2860,7 +2865,9 @@ function deviceCardHTML(d) {
                 title="Dispara a cena Power — alterna o aparelho">⚡ Power</button>`
           : `<label class="toggle" onclick="event.stopPropagation()">
               <input type="checkbox" ${d.status ? 'checked' : ''}
-                onchange="updateDevice('${d.id}', {status:this.checked})" />
+                onchange="${isVacuumVM
+                  ? `fireVacuumVM('${d.id}', this.checked ? 'start' : 'dock')`
+                  : `updateDevice('${d.id}', {status:this.checked})`}" />
               <span class="toggle-slider"></span>
             </label>`
         }
