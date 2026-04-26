@@ -3054,11 +3054,13 @@ async function fireVacuumVM(deviceId, action) {
   const labels = { start:'🧹 Limpar', pause:'⏸️ Pausar', dock:'🏠 Base', locate:'📍 Localizar' };
 
   try {
-    const r = await fetch('https://api-v2.voicemonkey.io/trigger', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: device.vm_token, device: triggerId }),
-    });
+    // Usa GET com query params: o POST aceita mas não dispara a routine
+    // (Voice Monkey responde "Request received" mas não chega na Alexa).
+    // GET dispara confiável.
+    const url = `https://api-v2.voicemonkey.io/trigger`
+              + `?token=${encodeURIComponent(device.vm_token)}`
+              + `&device=${encodeURIComponent(triggerId)}`;
+    const r = await fetch(url);
     let json;
     try { json = await r.json(); } catch (_) { json = { raw: await r.text() }; }
 
