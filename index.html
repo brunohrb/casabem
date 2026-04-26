@@ -3050,7 +3050,7 @@ async function fireVacuumVM(deviceId, action) {
     showToast('Voice Monkey não configurado neste dispositivo', 'error');
     return;
   }
-  const triggerId = `${device.vm_prefix}${action}`;          // ex: s10start
+  const triggerId = `${device.vm_prefix}${action}`.toLowerCase();   // ex: s10start
   const labels = { start:'🧹 Limpar', pause:'⏸️ Pausar', dock:'🏠 Base', locate:'📍 Localizar' };
 
   try {
