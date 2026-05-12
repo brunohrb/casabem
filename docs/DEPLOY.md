@@ -11,7 +11,7 @@ Passo a passo para ativar tudo o que foi reorganizado nessa branch
 ## 0. Requisitos
 
 - Acesso ao painel do Supabase (o projeto usado é
-  `egonicvreizaknzwqvbt`).
+  `hisbbtddpoxufvghxqtm`).
 - **Supabase CLI** instalado (`npm i -g supabase` ou `brew install supabase/tap/supabase`).
 - Credenciais do **Tuya IoT Platform** (Access ID + Access Secret).
 - Opcional: conta de dev da Amazon pra publicar a Alexa Skill.
@@ -46,7 +46,7 @@ O que ele faz:
 
 **Como rodar (opção CLI):**
 ```bash
-supabase link --project-ref egonicvreizaknzwqvbt
+supabase link --project-ref hisbbtddpoxufvghxqtm
 supabase db push
 ```
 
@@ -56,7 +56,7 @@ Arquivo: [`supabase/migrations/20260421_000100_cron_jobs.sql`](../supabase/migra
 
 **ANTES DE RODAR**, edite o arquivo e troque:
 
-- `SUPABASE_URL_AQUI` → `egonicvreizaknzwqvbt`
+- `SUPABASE_URL_AQUI` → `hisbbtddpoxufvghxqtm`
 - `SERVICE_ROLE_KEY_AQUI` → sua **service role key**
   (Project Settings → API → `service_role` — **não** a anon).
 
@@ -138,11 +138,11 @@ Precisa de `SERVICE_AUTH_KEY` (mesmo valor do `tuya-sync`).
 
 ```bash
 # Veja se o sync detecta algo:
-curl -X POST https://egonicvreizaknzwqvbt.supabase.co/functions/v1/tuya-sync \
+curl -X POST https://hisbbtddpoxufvghxqtm.supabase.co/functions/v1/tuya-sync \
   -H "Authorization: Bearer <SERVICE_ROLE_KEY>" -H "Content-Type: application/json" -d '{}'
 
 # Veja se o worker consegue rodar (pode não ter timer vencendo agora — é OK):
-curl -X POST https://egonicvreizaknzwqvbt.supabase.co/functions/v1/timer-worker \
+curl -X POST https://hisbbtddpoxufvghxqtm.supabase.co/functions/v1/timer-worker \
   -H "Authorization: Bearer <SERVICE_ROLE_KEY>" -H "Content-Type: application/json" -d '{}'
 ```
 
