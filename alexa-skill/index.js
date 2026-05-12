@@ -16,8 +16,8 @@ const https = require('https');
 // ⚙️  CONFIGURAÇÃO — ALTERE AQUI COM SEUS DADOS DO SUPABASE
 // ============================================================
 const CONFIG = {
-  SUPABASE_URL:  'https://egonicvreizaknzwqvbt.supabase.co',
-  SUPABASE_KEY:  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnb25pY3ZyZWl6YWtuendxdmJ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxOTQ2ODIsImV4cCI6MjA4OTc3MDY4Mn0.MRNFahn8obGmRHowMliJUIzdcO_CSa-z3IX1RlXdDgw',
+  SUPABASE_URL:  'https://hisbbtddpoxufvghxqtm.supabase.co',
+  SUPABASE_KEY:  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhpc2JidGRkcG94dWZ2Z2h4cXRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyMDM0OTgsImV4cCI6MjA4Nzc3OTQ5OH0.r3VkLkBxeorkCYjB-y6WOchePdfRKsm5lWE1iSSYlrw',
 };
 // ============================================================
 
