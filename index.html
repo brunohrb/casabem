@@ -2424,7 +2424,7 @@ const TUYA_SYNC_FN  = 'https://hisbbtddpoxufvghxqtm.supabase.co/functions/v1/tuy
 // ============================================================
 
 const { createClient } = supabase;
-const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+const db = createClient(SUPABASE_URL, SUPABASE_KEY, { db: { schema: 'alexa' } });
 
 // Estado local
 let allDevices  = [];
@@ -5567,7 +5567,7 @@ async function saveDevice() {
 // ============================================================
 function subscribeRealtime() {
   db.channel('casa-realtime')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'devices' }, (payload) => {
+    .on('postgres_changes', { event: '*', schema: 'alexa', table: 'devices' }, (payload) => {
       let externalStatusChange = null;  // { id, status, source } se veio de fora
       if (payload.eventType === 'UPDATE') {
         const idx = allDevices.findIndex(d => d.id === payload.new.id);
@@ -5607,7 +5607,7 @@ function subscribeRealtime() {
         evaluateRules(externalStatusChange.id, externalStatusChange.status);
       }
     })
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'commands_log' }, (payload) => {
+    .on('postgres_changes', { event: 'INSERT', schema: 'alexa', table: 'commands_log' }, (payload) => {
       const el = document.getElementById('logList');
       const newLog = payload.new;
       const item = document.createElement('div');
@@ -5626,7 +5626,7 @@ function subscribeRealtime() {
       const stat = document.getElementById('statCommands');
       stat.textContent = parseInt(stat.textContent || '0') + 1;
     })
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reminders' }, (payload) => {
+    .on('postgres_changes', { event: 'INSERT', schema: 'alexa', table: 'reminders' }, (payload) => {
       if (!allReminders.find(r => r.id === payload.new.id)) {
         allReminders.unshift(payload.new);
         renderReminders();
@@ -5635,7 +5635,7 @@ function subscribeRealtime() {
         }
       }
     })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'pending_timers' }, (payload) => {
+    .on('postgres_changes', { event: '*', schema: 'alexa', table: 'pending_timers' }, (payload) => {
       const row = payload.new || payload.old;
       if (!row) return;
       const devKey = String(row.device_id);
@@ -5655,15 +5655,15 @@ function subscribeRealtime() {
       }
       renderDevices();
     })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'room_order' }, async () => {
+    .on('postgres_changes', { event: '*', schema: 'alexa', table: 'room_order' }, async () => {
       await loadRoomOrder();
       renderDevices();
     })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'scenes' }, async () => {
+    .on('postgres_changes', { event: '*', schema: 'alexa', table: 'scenes' }, async () => {
       await loadScenes();
       renderScenesPanel();
     })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'scene_actions' }, async () => {
+    .on('postgres_changes', { event: '*', schema: 'alexa', table: 'scene_actions' }, async () => {
       await loadScenes();
       renderScenesPanel();
     })
