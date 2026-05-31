@@ -140,7 +140,19 @@ Deno.serve(async (req) => {
         }
         // tuya-control devolve o JSON puro da Tuya: { success, result: [...] }
         if (!res || !res.success) {
-          changes.push({ id: d.id, error: res?.msg ?? "tuya fail" });
+          const errMsg  = res?.msg  ?? "tuya fail";
+          const errCode = res?.code ?? "?";
+          changes.push({ id: d.id, error: errMsg, code: errCode });
+          if (!statusCache.has(d.tuya_device_id! + "_logged")) {
+            statusCache.set(d.tuya_device_id! + "_logged", true);
+            await db.from("commands_log").insert({
+              device_id:   d.id,
+              device_name: d.name,
+              command:     `tuya-sync ERR code=${errCode}: ${errMsg}`,
+              source:      "tuya-sync",
+              success:     false,
+            });
+          }
           continue;
         }
         const points     = res.result ?? [];
