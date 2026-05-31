@@ -169,9 +169,9 @@ Deno.serve(async (req) => {
         }
         if (diffBright) patch.brightness = realBright;
 
-        if (Object.keys(patch).length > 1 /* só 'last_tuya_sync_at' = no-op */) {
-          await db.from("devices").update(patch).eq("id", d.id);
-          if (diffStatus || diffBright) {
+        // Sempre persiste last_tuya_sync_at (mesmo sem diff) pra saber que o sync rodou.
+        await db.from("devices").update(patch).eq("id", d.id);
+        if (diffStatus || diffBright) {
             changed++;
             changes.push({
               id: d.id, name: d.name,
@@ -189,7 +189,6 @@ Deno.serve(async (req) => {
               success:     true,
             });
           }
-        }
       } catch (e) {
         console.warn("sync error for", d.id, e);
         changes.push({ id: d.id, error: String(e) });
