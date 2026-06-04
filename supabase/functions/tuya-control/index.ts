@@ -197,11 +197,18 @@ serve(async (req) => {
           // SmartLife usa key-press (remotes/command) pra Power, não o endpoint
           // de estado do AC. Tentamos os endpoints genéricos primeiro porque são
           // os que o SmartLife usa internamente.
+          // category_id 5 = AC no schema Tuya IR
           attempts.push({
-            label: "v2 remotes/command (power key)",
+            label: "v2 remotes/command (category_id+key)",
             method: "POST",
             path: `/v2.0/infrareds/${ir_parent_id}/remotes/${device_id}/command`,
-            body: { code: "power", value: on ? 1 : 0 },
+            body: { category_id: 5, key: "Power", key_id: 1 },
+          });
+          attempts.push({
+            label: "v2 remotes/raw/command (ac)",
+            method: "POST",
+            path: `/v2.0/infrareds/${ir_parent_id}/remotes/${device_id}/raw/command`,
+            body: { category_id: 5, key: "Power", key_id: 1 },
           });
           attempts.push({
             label: "v1 remotes/send-keys (power)",
