@@ -1,0 +1,2 @@
+[functions.tuya-webhook]
+verify_jwt = false

@@ -268,6 +268,81 @@
       .sidebar { border-left: none; border-top: 1px solid var(--border); position: static; max-height: none; }
     }
 
+    /* ============================================================
+       PAINÉIS DE CÂMERA LATERAIS
+    ============================================================ */
+    .cam-panel {
+      position: fixed;
+      top: 70px;
+      bottom: 0;
+      width: calc((100vw - 1400px) / 2 - 8px);
+      min-width: 160px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin: 8px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      z-index: 10;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+    }
+    .cam-panel.cam-left  { left: 0; }
+    .cam-panel.cam-right { right: 0; }
+    /* Só mostra quando sobra espaço suficiente (1400px do main + 2x180px laterais) */
+    @media (max-width: 1780px) { .cam-panel { display: none; } }
+
+    .cam-panel-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text2);
+      flex-shrink: 0;
+    }
+    .cam-panel-header input {
+      flex: 1;
+      font-size: 10px;
+      padding: 3px 6px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      background: var(--bg);
+      color: var(--text);
+      min-width: 0;
+    }
+    .cam-panel-header button {
+      font-size: 10px;
+      padding: 3px 7px;
+      border: 1px solid var(--accent);
+      border-radius: 5px;
+      background: transparent;
+      color: var(--accent);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .cam-panel iframe {
+      flex: 1;
+      width: 100%;
+      border: none;
+      background: #0a0f1a;
+    }
+    .cam-panel .cam-placeholder {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text2);
+      font-size: 12px;
+      gap: 8px;
+      padding: 16px;
+      text-align: center;
+    }
+    .cam-placeholder-icon { font-size: 32px; opacity: 0.4; }
+
     @media (max-width: 600px) {
       header { padding: 8px 14px; }
       .logo-img { height: 40px; }
@@ -1808,6 +1883,33 @@
 </div>
 
 <!-- ============================================================
+     PAINÉIS DE CÂMERA LATERAIS
+============================================================ -->
+<div class="cam-panel cam-left" id="camPanelLeft">
+  <div class="cam-panel-header">
+    📷 Câm. 1
+    <input type="text" id="camUrlLeft" placeholder="Cole a URL da câmera..." onkeydown="if(event.key==='Enter')loadCam('left')">
+    <button onclick="loadCam('left')">Ir</button>
+  </div>
+  <div class="cam-placeholder" id="camPlaceholderLeft">
+    <span class="cam-placeholder-icon">📷</span>
+    <span>Cole a URL da câmera e clique <strong>Ir</strong></span>
+  </div>
+</div>
+
+<div class="cam-panel cam-right" id="camPanelRight">
+  <div class="cam-panel-header">
+    📷 Câm. 2
+    <input type="text" id="camUrlRight" placeholder="Cole a URL da câmera..." onkeydown="if(event.key==='Enter')loadCam('right')">
+    <button onclick="loadCam('right')">Ir</button>
+  </div>
+  <div class="cam-placeholder" id="camPlaceholderRight">
+    <span class="cam-placeholder-icon">📷</span>
+    <span>Cole a URL da câmera e clique <strong>Ir</strong></span>
+  </div>
+</div>
+
+<!-- ============================================================
      MAIN
 ============================================================ -->
 <div class="main">
@@ -2118,7 +2220,10 @@
     <div id="onNowBody" style="overflow-y:auto;flex:1;padding:4px 0"></div>
     <div style="display:flex;justify-content:space-between;align-items:center;padding-top:14px;border-top:1px solid var(--border);margin-top:14px">
       <button class="btn btn-ghost" onclick="closeOnNowModal()">Fechar</button>
-      <button class="btn btn-primary" id="onNowSyncBtn" onclick="openOnNowModal(this)">🔄 Atualizar</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-danger" onclick="onNowOffAll()">🔴 Desligar tudo</button>
+        <button class="btn btn-primary" onclick="renderOnNowBody()">🔄 Atualizar</button>
+      </div>
     </div>
   </div>
 </div>
@@ -3356,6 +3461,44 @@ async function vacuumLocate(id) {
 }
 
 // ============================================================
+// PAINÉIS DE CÂMERA
+// ============================================================
+function loadCam(side) {
+  const urlInput = document.getElementById('camUrl' + (side === 'left' ? 'Left' : 'Right'));
+  const placeholder = document.getElementById('camPlaceholder' + (side === 'left' ? 'Left' : 'Right'));
+  const panel = document.getElementById('camPanel' + (side === 'left' ? 'Left' : 'Right'));
+  const url = urlInput.value.trim();
+  if (!url) return;
+
+  // Remove iframe anterior se existir
+  const old = panel.querySelector('iframe');
+  if (old) old.remove();
+
+  if (placeholder) placeholder.style.display = 'none';
+
+  const iframe = document.createElement('iframe');
+  iframe.src = url;
+  iframe.allow = 'camera; microphone; autoplay; fullscreen';
+  iframe.setAttribute('allowfullscreen', '');
+  panel.appendChild(iframe);
+
+  // Salva URL no localStorage
+  localStorage.setItem('camUrl_' + side, url);
+}
+
+// Restaura câmeras salvas ao carregar
+document.addEventListener('DOMContentLoaded', () => {
+  ['left', 'right'].forEach(side => {
+    const saved = localStorage.getItem('camUrl_' + side);
+    if (saved) {
+      const key = side === 'left' ? 'Left' : 'Right';
+      const input = document.getElementById('camUrl' + key);
+      if (input) { input.value = saved; loadCam(side); }
+    }
+  });
+});
+
+// ============================================================
 // AÇÕES RÁPIDAS
 // ============================================================
 async function ligarTudo() {
@@ -4501,69 +4644,94 @@ function closeOnNowModal() {
 
 async function openOnNowModal(btn) {
   document.getElementById('onNowModalOverlay').classList.add('open');
+  renderOnNowBody();
+}
+
+function renderOnNowBody() {
   const body = document.getElementById('onNowBody');
-  const syncBtn = document.getElementById('onNowSyncBtn');
-  const origLabel = btn?.textContent;
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Lendo…'; }
-  body.innerHTML = `<div class="empty-state" style="padding:24px">⏳ Sincronizando com Tuya…</div>`;
+  const on = allDevices.filter(d => d.status && !d.hidden);
+  const ir = allDevices.filter(d => d.ir_parent_id && !d.hidden);
+  const typeIcon = { light:'💡', ac:'❄️', tv:'📺', fan:'💨', other:'🔌' };
 
-  try {
-    // Força leitura fresquinha da Tuya antes de mostrar
-    const r = await fetch(TUYA_SYNC_FN, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
-      body: JSON.stringify({}),
-    });
-    const j = await r.json();
-    if (!j.success) throw new Error(j.error || 'sync falhou');
-    await loadDevices();
-
-    // Agrupa por cômodo os que estão on
-    const on = allDevices.filter(d => d.status && !d.hidden);
-    const ir = allDevices.filter(d => d.ir_parent_id && !d.hidden); // IR: estado desconhecido
-
-    if (on.length === 0 && ir.length === 0) {
-      body.innerHTML = `<div class="empty-state" style="padding:32px">
-        <div style="font-size:32px">🌙</div>
-        <div style="font-size:15px;font-weight:600;margin-top:8px">Tudo desligado</div>
-        <div style="font-size:12px;color:var(--text2);margin-top:4px">${j.checked} dispositivo(s) verificado(s)</div>
+  if (on.length === 0) {
+    let html = `<div class="empty-state" style="padding:32px">
+      <div style="font-size:32px">🌙</div>
+      <div style="font-size:15px;font-weight:600;margin-top:8px">Nada ligado (que o dashboard saiba)</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:4px">${allDevices.length} dispositivo(s) monitorados</div>
+    </div>`;
+    if (ir.length > 0) {
+      html += `<div style="margin:0 4px;padding:10px 12px;background:#fef9c3;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#713f12">
+        <b>⚠️ Dispositivos IR (AC, TV)</b> — estado desconhecido (IR é de mão única).
       </div>`;
-    } else {
-      // Agrupa por cômodo
-      const byRoom = {};
-      for (const d of on) {
-        if (!byRoom[d.room]) byRoom[d.room] = [];
-        byRoom[d.room].push(d);
-      }
-      const typeIcon = { light:'💡', ac:'❄️', tv:'📺', fan:'💨', other:'🔌' };
-      let html = '';
-      for (const [room, devs] of Object.entries(byRoom)) {
-        html += `<div style="margin-bottom:16px">
-          <div style="font-weight:700;font-size:13px;color:var(--accent2);margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)">${escapeHtml(room)}</div>
-          ${devs.map(d => `
-            <div style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid #f0f0f0">
-              <span style="font-size:18px">${typeIcon[d.type] || '🔌'}</span>
-              <div style="flex:1">
-                <div style="font-weight:600;font-size:13px">${escapeHtml(d.name)}</div>
-                ${d.ir_parent_id ? '<div style="font-size:11px;color:var(--text2)">IR — estado estimado</div>' : ''}
-              </div>
-              <span style="background:#dcfce7;color:#166534;font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px">LIGADO</span>
-            </div>`).join('')}
-        </div>`;
-      }
-      if (ir.length > 0 && on.filter(d => d.ir_parent_id).length === 0) {
-        html += `<div style="margin-top:8px;padding:10px 12px;background:#fef9c3;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#713f12">
-          <b>⚠️ Dispositivos IR (AC, TV)</b> — estado real desconhecido. IR é de mão única; o aparelho não reporta se está ligado.
-        </div>`;
-      }
-      html += `<div style="margin-top:12px;font-size:11px;color:var(--text2);text-align:center">${j.checked} dispositivo(s) verificado(s) · ${j.took_ms}ms</div>`;
-      body.innerHTML = html;
     }
-  } catch (e) {
-    body.innerHTML = `<div style="padding:16px;background:#fdecea;border-radius:8px;color:var(--red)">Erro: ${escapeHtml(String(e.message || e))}</div>`;
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = origLabel; }
+    body.innerHTML = html;
+    return;
   }
+
+  const byRoom = {};
+  for (const d of on) {
+    if (!byRoom[d.room]) byRoom[d.room] = [];
+    byRoom[d.room].push(d);
+  }
+
+  const btnStyle = 'border:1px solid var(--border);background:#fff;border-radius:6px;font-size:11px;padding:4px 8px;cursor:pointer;white-space:nowrap';
+  const btnRedStyle = 'border:1px solid #fca5a5;background:#fef2f2;color:#b91c1c;border-radius:6px;font-size:11px;padding:4px 8px;cursor:pointer;white-space:nowrap';
+
+  let html = '';
+  for (const [room, devs] of Object.entries(byRoom)) {
+    html += `<div style="margin-bottom:16px">
+      <div style="font-weight:700;font-size:13px;color:var(--accent2);margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)">${escapeHtml(room)}</div>
+      ${devs.map(d => `
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #f0f0f0;flex-wrap:wrap">
+          <span style="font-size:18px">${typeIcon[d.type] || '🔌'}</span>
+          <div style="flex:1;min-width:80px">
+            <div style="font-weight:600;font-size:13px">${escapeHtml(d.name)}</div>
+            ${d.ir_parent_id ? '<div style="font-size:10px;color:var(--text2)">IR — estado estimado</div>' : ''}
+          </div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            <button style="${btnRedStyle}" onclick="onNowOff('${d.id}')">Desligar</button>
+            <button style="${btnStyle}" onclick="onNowTimer('${d.id}',5)">5 min</button>
+            <button style="${btnStyle}" onclick="onNowTimer('${d.id}',20)">20 min</button>
+          </div>
+        </div>`).join('')}
+    </div>`;
+  }
+
+  if (ir.length > 0 && !on.some(d => d.ir_parent_id)) {
+    html += `<div style="margin-top:8px;padding:10px 12px;background:#fef9c3;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#713f12">
+      <b>⚠️ Dispositivos IR (AC, TV)</b> — estado desconhecido (IR é de mão única).
+    </div>`;
+  }
+  html += `<div style="margin-top:12px;font-size:11px;color:var(--text2);text-align:center">${on.length} ligado(s) de ${allDevices.length} dispositivo(s)</div>`;
+  body.innerHTML = html;
+}
+
+async function onNowOff(deviceId) {
+  await updateDevice(deviceId, { status: false });
+  renderOnNowBody();
+}
+
+async function onNowTimer(deviceId, minutes) {
+  const device = allDevices.find(d => d.id === deviceId);
+  if (!device) return;
+  const fireAt = new Date(Date.now() + minutes * 60 * 1000).toISOString();
+  await cancelDeviceTimersForDevice(deviceId);
+  await db.from('pending_timers').insert({
+    device_id: deviceId, device_name: device.name,
+    action: 'off', fire_at: fireAt,
+    label: `Desligar ${device.name} em ${minutes}min`,
+    source: 'manual_timer',
+  });
+  showToast(`⏱️ ${device.name} vai desligar em ${minutes} min`, 'success');
+  renderOnNowBody();
+}
+
+async function onNowOffAll() {
+  const on = allDevices.filter(d => d.status && !d.hidden);
+  if (!on.length) return;
+  await Promise.all(on.map(d => updateDevice(d.id, { status: false }, { silent: true })));
+  showToast(`🔴 ${on.length} dispositivo(s) desligados`, 'info');
+  renderOnNowBody();
 }
 
 // Dispara uma rodada do tuya-sync na hora (útil se o cron do Supabase
