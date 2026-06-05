@@ -194,26 +194,45 @@ serve(async (req) => {
         const attempts: Attempt[] = [];
 
         if (deviceType === "ac") {
-          // AC Standard Command — Tuya docs oficiais
+          // SmartLife usa key-press (remotes/command) pra Power, não o endpoint
+          // de estado do AC. Tentamos os endpoints genéricos primeiro porque são
+          // os que o SmartLife usa internamente.
+          // category_id 5 = AC no schema Tuya IR
+          attempts.push({
+            label: "v2 remotes/command (category_id+key)",
+            method: "POST",
+            path: `/v2.0/infrareds/${ir_parent_id}/remotes/${device_id}/command`,
+            body: { category_id: 5, key: "Power", key_id: 1 },
+          });
+          attempts.push({
+            label: "v2 remotes/raw/command (ac)",
+            method: "POST",
+            path: `/v2.0/infrareds/${ir_parent_id}/remotes/${device_id}/raw/command`,
+            body: { category_id: 5, key: "Power", key_id: 1 },
+          });
+          attempts.push({
+            label: "v1 remotes/send-keys (power)",
+            method: "POST",
+            path: `/v1.0/infrareds/${ir_parent_id}/remotes/${device_id}/send-keys`,
+            body: { key: "Power" },
+          });
+          // AC Standard Command com estado completo (power + defaults razoáveis)
           attempts.push({
             label: "v2 air-conditioners/command",
             method: "POST",
             path: `/v2.0/infrareds/${ir_parent_id}/air-conditioners/${device_id}/command`,
-            body: { code: body.ir_code ?? "power", value: body.ir_value ?? (on ? 1 : 0) },
+            body: body.ir_code
+              ? { code: body.ir_code, value: body.ir_value ?? (on ? 1 : 0) }
+              : { power: on ? 1 : 0, mode: 0, temp: 24, wind: 2 },
           });
-          // Fallback v1
+          // Fallback v1 AC
           attempts.push({
             label: "v1 air-conditioners/command",
             method: "POST",
             path: `/v1.0/infrareds/${ir_parent_id}/air-conditioners/${device_id}/command`,
-            body: { code: body.ir_code ?? "power", value: body.ir_value ?? (on ? 1 : 0) },
-          });
-          // Alguns projetos usam send-command com string
-          attempts.push({
-            label: "v1 air-conditioners/send-command",
-            method: "POST",
-            path: `/v1.0/infrareds/${ir_parent_id}/air-conditioners/${device_id}/send-command`,
-            body: { code: body.ir_code ?? "power", value: String(body.ir_value ?? (on ? 1 : 0)) },
+            body: body.ir_code
+              ? { code: body.ir_code, value: body.ir_value ?? (on ? 1 : 0) }
+              : { power: on ? 1 : 0, mode: 0, temp: 24, wind: 2 },
           });
         } else {
           // Genérico (TV, fan, etc.) — Tuya docs oficiais
