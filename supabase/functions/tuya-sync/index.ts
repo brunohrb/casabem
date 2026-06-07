@@ -1,24 +1,18 @@
 // ============================================================
 // casa BEM · tuya-sync
 // ------------------------------------------------------------
-// Faz polling no Tuya Cloud para descobrir o estado real dos
-// dispositivos (inclusive quando alguém aperta o interruptor na
-// parede ou usa o app da Alexa nativa). Se o estado divergir do
-// que está em `public.devices`, atualiza o banco — o Realtime
-// do Supabase avisa o frontend.
+// Cron dispara a cada 5 min. A função decide se executa ou pula
+// baseado no horário (BRT) e no orçamento mensal Tuya.
 //
-// Delega a chamada Tuya pro Edge Function `tuya-control` (que já
-// tem as credenciais TUYA_ACCESS_ID / TUYA_ACCESS_SECRET). Assim
-// a lógica de assinatura fica em um lugar só.
+// Agenda (horário de Brasília, UTC-3):
+//   Seg–Sex  07:30–12:30  a cada 30 min
+//   Seg–Sex  12:30–18:00  a cada  5 min
+//   Seg–Sex  18:00–23:30  a cada 40 min
+//   Seg–Sex  23:30–07:30  parado
+//   Sábado   08:00–23:00  a cada  2 h
+//   Domingo  09:00–22:00  a cada  3 h
 //
-// ENV necessários:
-//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY  (auto)
-//   TUYA_CONTROL_URL  (opcional, default = <SUPABASE_URL>/functions/v1/tuya-control)
-//   SERVICE_AUTH_KEY  (opcional, default = service role key)
-//
-// Agendado via pg_cron a cada 20s — ver migração *_cron_jobs.sql.
-// on_since / total_on_time_seconds / device_sessions são gerados
-// automaticamente por triggers no banco.
+// Orçamento: 21 IDs × 2 chamadas = 42/sync. Limite 95% de 80.645.
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -33,6 +27,58 @@ const db = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false },
 });
 
+const CALLS_PER_SYNC  = 42;
+const MAX_CALLS_MONTH = 76_600; // 95% de 80.645
+
+// ── Agenda BRT ───────────────────────────────────────────────
+function getRequiredInterval(): number | null {
+  const now = new Date();
+  // BRT = UTC-3 (Brasil não usa horário de verão desde 2019)
+  const brt = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  const dow = brt.getUTCDay();
+  const t   = brt.getUTCHours() * 60 + brt.getUTCMinutes();
+
+  if (dow >= 1 && dow <= 5) {
+    if (t >= 7*60+30 && t < 12*60+30) return 30;
+    if (t >= 12*60+30 && t < 18*60)   return 5;
+    if (t >= 18*60 && t < 23*60+30)   return 40;
+    return null;
+  }
+  if (dow === 6 && t >= 8*60 && t < 23*60)  return 120;
+  if (dow === 0 && t >= 9*60 && t < 22*60)  return 180;
+  return null;
+}
+
+// ── Orçamento mensal ─────────────────────────────────────────
+async function checkBudget(): Promise<boolean> {
+  const month = new Date().toISOString().slice(0, 7);
+  await db.from("sync_budget").upsert(
+    { month, runs: 0, calls_used: 0, skipped: 0 },
+    { onConflict: "month", ignoreDuplicates: true },
+  );
+  const { data } = await db.from("sync_budget")
+    .select("calls_used").eq("month", month).single();
+  return ((data?.calls_used ?? 0) + CALLS_PER_SYNC) <= MAX_CALLS_MONTH;
+}
+
+async function recordRun(skipped = false) {
+  const month = new Date().toISOString().slice(0, 7);
+  const { data } = await db.from("sync_budget")
+    .select("runs, calls_used, skipped").eq("month", month).single();
+  if (skipped) {
+    await db.from("sync_budget")
+      .update({ skipped: (data?.skipped ?? 0) + 1, updated_at: new Date().toISOString() })
+      .eq("month", month);
+  } else {
+    await db.from("sync_budget").update({
+      runs: (data?.runs ?? 0) + 1,
+      calls_used: (data?.calls_used ?? 0) + CALLS_PER_SYNC,
+      updated_at: new Date().toISOString(),
+    }).eq("month", month);
+  }
+}
+
+// ── Helpers Tuya ─────────────────────────────────────────────
 async function tuyaStatus(tuyaDeviceId: string): Promise<any> {
   const r = await fetch(TUYA_CONTROL_URL, {
     method: "POST",
@@ -46,30 +92,16 @@ async function tuyaStatus(tuyaDeviceId: string): Promise<any> {
   return r.json();
 }
 
-// Tuya retorna um array de { code, value } por device. O usuário pode
-// ter vários "casa BEM devices" apontando pro mesmo tuya_device_id, cada
-// um representando uma tecla (switch_1, switch_2, …, switch_led).
-//
-// Regras:
-//   1. Tenta o `switchCode` exato do dispositivo (sempre prioritário).
-//   2. Se NÃO há multi-tecla (apenas um casa BEM device usa esse
-//      tuya_device_id) caímos em fallbacks genéricos — útil quando
-//      a lâmpada usa `switch_led` e o device foi cadastrado com
-//      `switch_1` por padrão.
-//   3. Se HÁ multi-tecla, NÃO caímos em fallback: senão todas as
-//      teclas leriam o mesmo switch_1 e a 2/3/4 nunca dariam sync.
 function extractStatus(
   points: Array<{ code: string; value: unknown }>,
   switchCode: string | null | undefined,
   multi: boolean,
 ): boolean | null {
   if (!Array.isArray(points)) return null;
-
   if (switchCode) {
     const p = points.find(x => x.code === switchCode);
     if (p && typeof p.value === "boolean") return p.value;
   }
-
   if (!multi) {
     for (const code of ["switch_led", "switch_1", "switch", "led_switch"]) {
       const p = points.find(x => x.code === code);
@@ -78,7 +110,6 @@ function extractStatus(
     const power = points.find(x => x.code === "power" || x.code === "work_state");
     if (power && typeof power.value === "boolean") return power.value;
   }
-
   return null;
 }
 
@@ -86,97 +117,70 @@ function extractBrightness(points: Array<{ code: string; value: unknown }>): num
   if (!Array.isArray(points)) return null;
   for (const code of ["bright_value", "bright_value_v2", "brightness"]) {
     const p = points.find(x => x.code === code);
-    if (p && typeof p.value === "number") {
-      // Tuya normalmente usa 10–1000. Normaliza para 0–100.
-      return Math.round((p.value / 1000) * 100);
-    }
+    if (p && typeof p.value === "number") return Math.round((p.value / 1000) * 100);
   }
   return null;
 }
 
-const CORS_HEADERS = {
+const CORS = {
   "Access-Control-Allow-Origin":  "*",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey",
 };
 
-// Orçamento mensal: $0.20 = ~80.645 chamadas Tuya.
-// Cada sync usa 2 chamadas por device_id único (token + status).
-// Com 21 IDs únicos = 42 chamadas/sync. Limite seguro: 1.400 syncs/mês (80%).
-const CALLS_PER_SYNC   = 42;
-const MAX_CALLS_MONTH  = 64_000; // 80% de 80.645 — deixa margem
-const MAX_SYNCS_MONTH  = Math.floor(MAX_CALLS_MONTH / CALLS_PER_SYNC); // ~1.523
-
-async function checkAndUpdateBudget(): Promise<{ allowed: boolean; runs: number; calls_used: number }> {
-  const month = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
-
-  // Upsert do mês atual
-  await db.from("sync_budget").upsert({ month, runs: 0, calls_used: 0, skipped: 0 }, {
-    onConflict: "month",
-    ignoreDuplicates: true,
+function json(body: any, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status, headers: { ...CORS, "Content-Type": "application/json" },
   });
-
-  const { data } = await db.from("sync_budget").select("runs, calls_used, skipped").eq("month", month).single();
-  const runs = data?.runs ?? 0;
-  const calls_used = data?.calls_used ?? 0;
-
-  if (calls_used + CALLS_PER_SYNC > MAX_CALLS_MONTH) {
-    // Orçamento esgotado — registra skip e recusa
-    await db.from("sync_budget")
-      .update({ skipped: (data?.skipped ?? 0) + 1, updated_at: new Date().toISOString() })
-      .eq("month", month);
-    return { allowed: false, runs, calls_used };
-  }
-
-  // Registra o sync
-  await db.from("sync_budget")
-    .update({
-      runs: runs + 1,
-      calls_used: calls_used + CALLS_PER_SYNC,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("month", month);
-
-  return { allowed: true, runs: runs + 1, calls_used: calls_used + CALLS_PER_SYNC };
 }
 
+// ── Handler principal ─────────────────────────────────────────
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: CORS_HEADERS });
-  }
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
   const started = Date.now();
 
-  try {
-    // ── Guard de orçamento mensal ─────────────────────────────
-    const budget = await checkAndUpdateBudget();
-    if (!budget.allowed) {
-      return json({
-        success: true,
-        skipped: true,
-        reason: "monthly_budget_exhausted",
-        calls_used: budget.calls_used,
-        max_calls: MAX_CALLS_MONTH,
-      });
-    }
+  // 1. Pausa manual
+  const { data: settings } = await db.from("app_settings")
+    .select("sync_paused, last_sync_at").eq("id", 1).single();
+  if (settings?.sync_paused) {
+    return json({ success: true, skipped: true, reason: "paused" });
+  }
 
+  // 2. Agenda horária
+  const requiredInterval = getRequiredInterval();
+  if (requiredInterval === null) {
+    return json({ success: true, skipped: true, reason: "outside_schedule" });
+  }
+
+  // 3. Tempo mínimo desde último sync
+  if (settings?.last_sync_at) {
+    const minutesSince = (Date.now() - new Date(settings.last_sync_at).getTime()) / 60000;
+    if (minutesSince < requiredInterval - 0.5) {
+      return json({ success: true, skipped: true, reason: "too_soon", minutes_since: Math.round(minutesSince), required: requiredInterval });
+    }
+  }
+
+  // 4. Orçamento mensal
+  if (!(await checkBudget())) {
+    await recordRun(true);
+    return json({ success: true, skipped: true, reason: "budget_exhausted" });
+  }
+
+  // 5. Executar sync
+  try {
     const { data: devices, error } = await db
       .from("devices")
       .select("id, name, type, room, status, brightness, tuya_device_id, tuya_switch_code")
       .not("tuya_device_id", "is", null);
     if (error) throw error;
     if (!devices || devices.length === 0) {
+      await recordRun();
       return json({ success: true, checked: 0, changed: 0 });
     }
 
     let changed = 0;
     const changes: any[] = [];
-
-    // Vários "casa BEM devices" podem apontar para o mesmo tuya_device_id
-    // (interruptor multi-tecla). Cache por tuya_device_id evita chamar
-    // a Tuya Cloud várias vezes por ciclo, e um mapa de contagem nos
-    // diz se aquele device_id é multi-tecla (afeta o fallback em
-    // extractStatus).
     const statusCache = new Map<string, any>();
     const mapCount    = new Map<string, number>();
     for (const d of devices) {
@@ -190,7 +194,6 @@ Deno.serve(async (req) => {
           res = await tuyaStatus(d.tuya_device_id!);
           statusCache.set(d.tuya_device_id!, res);
         }
-        // tuya-control devolve o JSON puro da Tuya: { success, result: [...] }
         if (!res || !res.success) {
           changes.push({ id: d.id, error: res?.msg ?? "tuya fail" });
           continue;
@@ -201,44 +204,25 @@ Deno.serve(async (req) => {
         const realBright = extractBrightness(points);
 
         if (realStatus === null) {
-          await db.from("devices")
-            .update({ last_tuya_sync_at: new Date().toISOString() })
-            .eq("id", d.id);
+          await db.from("devices").update({ last_tuya_sync_at: new Date().toISOString() }).eq("id", d.id);
           continue;
         }
 
         const diffStatus = realStatus !== d.status;
-        const diffBright = realBright != null && d.type === "light"
-                         && realBright !== (d.brightness ?? 0);
+        const diffBright = realBright != null && d.type === "light" && realBright !== (d.brightness ?? 0);
+        const patch: Record<string, unknown> = { last_tuya_sync_at: new Date().toISOString() };
+        if (diffStatus) { patch.status = realStatus; patch.last_source = "manual"; patch.last_changed = "manual"; }
+        if (diffBright)  patch.brightness = realBright;
 
-        const patch: Record<string, unknown> = {
-          last_tuya_sync_at: new Date().toISOString(),
-        };
-        if (diffStatus) {
-          patch.status       = realStatus;
-          patch.last_source  = "manual";   // veio do interruptor / app externo
-          patch.last_changed = "manual";
-        }
-        if (diffBright) patch.brightness = realBright;
-
-        if (Object.keys(patch).length > 1 /* só 'last_tuya_sync_at' = no-op */) {
+        if (Object.keys(patch).length > 1) {
           await db.from("devices").update(patch).eq("id", d.id);
           if (diffStatus || diffBright) {
             changed++;
-            changes.push({
-              id: d.id, name: d.name,
-              status:     diffStatus ? realStatus : undefined,
-              brightness: diffBright ? realBright : undefined,
-              source:     "manual",
-            });
+            changes.push({ id: d.id, name: d.name, status: diffStatus ? realStatus : undefined, brightness: diffBright ? realBright : undefined });
             await db.from("commands_log").insert({
-              device_id:   d.id,
-              device_name: d.name,
-              command:     diffStatus
-                           ? `Interruptor físico: ${realStatus ? "ligado" : "desligado"}`
-                           : `Brilho alterado: ${realBright}%`,
-              source:      "manual",
-              success:     true,
+              device_id: d.id, device_name: d.name,
+              command:   diffStatus ? `Interruptor físico: ${realStatus ? "ligado" : "desligado"}` : `Brilho alterado: ${realBright}%`,
+              source:    "manual", success: true,
             });
           }
         }
@@ -248,20 +232,13 @@ Deno.serve(async (req) => {
       }
     }
 
-    return json({
-      success: true,
-      checked: devices.length,
-      changed, changes,
-      took_ms: Date.now() - started,
-    });
+    await db.from("app_settings")
+      .update({ last_sync_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq("id", 1);
+    await recordRun();
+
+    return json({ success: true, checked: devices.length, changed, changes, took_ms: Date.now() - started, interval: requiredInterval });
   } catch (e) {
     return json({ success: false, error: String(e) }, 500);
   }
 });
-
-function json(body: any, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-  });
-}
