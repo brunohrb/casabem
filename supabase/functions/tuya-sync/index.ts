@@ -100,6 +100,46 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey",
 };
 
+// Orçamento mensal: $0.20 = ~80.645 chamadas Tuya.
+// Cada sync usa 2 chamadas por device_id único (token + status).
+// Com 21 IDs únicos = 42 chamadas/sync. Limite seguro: 1.400 syncs/mês (80%).
+const CALLS_PER_SYNC   = 42;
+const MAX_CALLS_MONTH  = 64_000; // 80% de 80.645 — deixa margem
+const MAX_SYNCS_MONTH  = Math.floor(MAX_CALLS_MONTH / CALLS_PER_SYNC); // ~1.523
+
+async function checkAndUpdateBudget(): Promise<{ allowed: boolean; runs: number; calls_used: number }> {
+  const month = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
+
+  // Upsert do mês atual
+  await db.from("sync_budget").upsert({ month, runs: 0, calls_used: 0, skipped: 0 }, {
+    onConflict: "month",
+    ignoreDuplicates: true,
+  });
+
+  const { data } = await db.from("sync_budget").select("runs, calls_used, skipped").eq("month", month).single();
+  const runs = data?.runs ?? 0;
+  const calls_used = data?.calls_used ?? 0;
+
+  if (calls_used + CALLS_PER_SYNC > MAX_CALLS_MONTH) {
+    // Orçamento esgotado — registra skip e recusa
+    await db.from("sync_budget")
+      .update({ skipped: (data?.skipped ?? 0) + 1, updated_at: new Date().toISOString() })
+      .eq("month", month);
+    return { allowed: false, runs, calls_used };
+  }
+
+  // Registra o sync
+  await db.from("sync_budget")
+    .update({
+      runs: runs + 1,
+      calls_used: calls_used + CALLS_PER_SYNC,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("month", month);
+
+  return { allowed: true, runs: runs + 1, calls_used: calls_used + CALLS_PER_SYNC };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: CORS_HEADERS });
@@ -108,6 +148,18 @@ Deno.serve(async (req) => {
   const started = Date.now();
 
   try {
+    // ── Guard de orçamento mensal ─────────────────────────────
+    const budget = await checkAndUpdateBudget();
+    if (!budget.allowed) {
+      return json({
+        success: true,
+        skipped: true,
+        reason: "monthly_budget_exhausted",
+        calls_used: budget.calls_used,
+        max_calls: MAX_CALLS_MONTH,
+      });
+    }
+
     const { data: devices, error } = await db
       .from("devices")
       .select("id, name, type, room, status, brightness, tuya_device_id, tuya_switch_code")

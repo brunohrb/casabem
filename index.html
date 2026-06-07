@@ -1819,8 +1819,8 @@
     <div class="section-header">
       <div class="section-title">Dispositivos</div>
       <div class="view-tabs">
-        <button class="view-tab active" id="tabLista" onclick="switchView('lista')">📋 Lista</button>
-        <button class="view-tab" id="tabMapa" onclick="switchView('mapa')">🗺️ Mapa</button>
+        <button class="view-tab" id="tabLista" onclick="switchView('lista')">📋 Lista</button>
+        <button class="view-tab active" id="tabMapa" onclick="switchView('mapa')">🗺️ Mapa</button>
       </div>
     </div>
 
@@ -2471,7 +2471,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 // e também se o usuário salvou "estava em quiosque" no localStorage).
 function applyStartupUrlParams() {
   const params = new URLSearchParams(window.location.search);
-  if (params.get('view') === 'mapa') switchView('mapa');
+  // Padrão: mapa. Só vai para lista se explicitamente pedido.
+  const view = params.get('view') ?? 'mapa';
+  if (view === 'mapa') switchView('mapa');
   // Auto-kiosk se o PWA abriu via atalho ?mode=kiosk OU se o usuário
   // saiu do app estando em quiosque (persistiu em localStorage).
   const wantKiosk = params.get('mode') === 'kiosk'
