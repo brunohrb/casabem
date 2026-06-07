@@ -90,6 +90,17 @@
 
     .header-right { display: flex; align-items: center; gap: 12px; }
 
+    .sync-credit-badge {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 11px; color: var(--text2);
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 20px; padding: 3px 10px;
+      cursor: default; transition: color 0.3s;
+    }
+    .sync-credit-badge.warn  { color: #d97706; border-color: #fbbf24; }
+    .sync-credit-badge.crit  { color: #dc2626; border-color: #f87171; }
+    .sync-credit-badge.paused { color: #7c3aed; border-color: #a78bfa; }
+
     .status-badge {
       display: flex;
       align-items: center;
@@ -1763,6 +1774,10 @@
     </div>
   </div>
   <div class="header-right">
+    <div class="sync-credit-badge" id="syncCreditBadge" title="Orçamento Tuya mensal" onclick="toggleSyncPause()">
+      <span id="syncCreditIcon">📡</span>
+      <span id="syncCreditText">—</span>
+    </div>
     <button class="mic-btn" id="micBtn" onclick="toggleVoice()" title="Comando de voz — diga BEM para ativar">
       <span class="mic-icon">🎤</span>
       <span id="micLabel">BEM</span>
@@ -2463,8 +2478,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   subscribeRealtime();
   registerServiceWorker();
   applyStartupUrlParams();
-  // Inicia escuta de voz automática (pede permissão de microfone na 1ª vez)
   autoStartVoice();
+  loadSyncCredit();
+  setInterval(loadSyncCredit, 5 * 60 * 1000); // atualiza a cada 5 min
 });
 
 // Lê ?view=mapa e ?mode=kiosk ao iniciar (usado pelos atalhos do PWA
@@ -3360,6 +3376,60 @@ async function vacuumLocate(id) {
     } catch (e) { console.warn('Tuya locate error:', e); }
   }
   showToast(`📍 ${device.name} emitindo som de localização`, 'info');
+}
+
+// ============================================================
+// SYNC CREDIT & PAUSE
+// ============================================================
+let _syncPaused = false;
+
+async function loadSyncCredit() {
+  try {
+    const month = new Date().toISOString().slice(0, 7);
+    const [budgetRes, settingsRes] = await Promise.all([
+      supabase.from('sync_budget').select('calls_used').eq('month', month).single(),
+      supabase.from('app_settings').select('sync_paused').eq('id', 1).single(),
+    ]);
+
+    _syncPaused = settingsRes.data?.sync_paused ?? false;
+    const callsUsed = budgetRes.data?.calls_used ?? 0;
+    const maxCalls  = 76600;
+    const pct       = Math.round(callsUsed / maxCalls * 100);
+    const remaining = Math.max(0, 100 - pct);
+
+    const badge = document.getElementById('syncCreditBadge');
+    const icon  = document.getElementById('syncCreditIcon');
+    const text  = document.getElementById('syncCreditText');
+    if (!badge || !icon || !text) return;
+
+    badge.className = 'sync-credit-badge';
+    if (_syncPaused) {
+      icon.textContent  = '⏸️';
+      text.textContent  = 'Pausado';
+      badge.classList.add('paused');
+      badge.title = 'Sync pausado — clique para retomar';
+    } else {
+      icon.textContent = '📡';
+      text.textContent = `${remaining}% crédito`;
+      badge.title = `${callsUsed.toLocaleString()} / ${maxCalls.toLocaleString()} chamadas — clique para pausar`;
+      if (remaining <= 10) badge.classList.add('crit');
+      else if (remaining <= 30) badge.classList.add('warn');
+    }
+  } catch(e) {
+    console.warn('loadSyncCredit error', e);
+  }
+}
+
+async function toggleSyncPause() {
+  try {
+    const newPaused = !_syncPaused;
+    await supabase.from('app_settings').update({ sync_paused: newPaused, updated_at: new Date().toISOString() }).eq('id', 1);
+    _syncPaused = newPaused;
+    await loadSyncCredit();
+    showToast(newPaused ? '⏸️ Sync pausado' : '▶️ Sync retomado', newPaused ? 'info' : 'success');
+  } catch(e) {
+    showToast('Erro ao alterar sync', 'error');
+  }
 }
 
 // ============================================================
