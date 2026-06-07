@@ -3393,8 +3393,8 @@ async function loadSyncCredit() {
   try {
     const month = new Date().toISOString().slice(0, 7);
     const [budgetRes, settingsRes] = await Promise.all([
-      supabase.from('sync_budget').select('calls_used').eq('month', month).single(),
-      supabase.from('app_settings').select('sync_paused').eq('id', 1).single(),
+      db.from('sync_budget').select('calls_used').eq('month', month).single(),
+      db.from('app_settings').select('sync_paused').eq('id', 1).single(),
     ]);
 
     _syncPaused = settingsRes.data?.sync_paused ?? false;
@@ -3435,7 +3435,7 @@ async function loadSyncCredit() {
 async function toggleSyncPause() {
   try {
     const newPaused = !_syncPaused;
-    await supabase.from('app_settings').update({ sync_paused: newPaused, updated_at: new Date().toISOString() }).eq('id', 1);
+    await db.from('app_settings').update({ sync_paused: newPaused, updated_at: new Date().toISOString() }).eq('id', 1);
     _syncPaused = newPaused;
     await loadSyncCredit();
     showToast(newPaused ? '⏸️ Sync pausado' : '▶️ Sync retomado', newPaused ? 'info' : 'success');
@@ -3448,9 +3448,9 @@ async function manualSync(btn) {
   const orig = btn ? btn.innerHTML : '';
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="qb-icon">⏳</span> Sincronizando…'; }
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await db.auth.getSession();
     const token = session?.access_token;
-    const { data, error } = await supabase.functions.invoke('tuya-sync', {
+    const { data, error } = await db.functions.invoke('tuya-sync', {
       body: { force: true },
     });
     if (error) throw error;
