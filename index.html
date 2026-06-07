@@ -1774,7 +1774,7 @@
     </div>
   </div>
   <div class="header-right">
-    <div class="sync-credit-badge" id="syncCreditBadge" title="Orçamento Tuya mensal" onclick="toggleSyncPause()">
+    <div class="sync-credit-badge" id="syncCreditBadge" title="Orçamento Tuya mensal">
       <span id="syncCreditIcon">📡</span>
       <span id="syncCreditText">—</span>
     </div>
@@ -1910,6 +1910,12 @@
         </button>
         <button class="quick-btn" onclick="openOnNowModal(this)">
           <span class="qb-icon">💡</span> O que está ligado?
+        </button>
+        <button class="quick-btn" id="btnSyncNow" onclick="manualSync(this)">
+          <span class="qb-icon">🔄</span> Sync Agora
+        </button>
+        <button class="quick-btn" id="btnSyncPause" onclick="toggleSyncPause()">
+          <span class="qb-icon" id="btnSyncPauseIcon">⏸️</span> <span id="btnSyncPauseLabel">Pausar Sync</span>
         </button>
         <button class="quick-btn" onclick="openTuyaSyncModal()">
           <span class="qb-icon">🔄</span> Sincronizar SmartLife
@@ -3407,14 +3413,20 @@ async function loadSyncCredit() {
       icon.textContent  = '⏸️';
       text.textContent  = 'Pausado';
       badge.classList.add('paused');
-      badge.title = 'Sync pausado — clique para retomar';
+      badge.title = 'Sync pausado';
     } else {
       icon.textContent = '📡';
       text.textContent = `${remaining}% crédito`;
-      badge.title = `${callsUsed.toLocaleString()} / ${maxCalls.toLocaleString()} chamadas — clique para pausar`;
+      badge.title = `${callsUsed.toLocaleString()} / ${maxCalls.toLocaleString()} chamadas`;
       if (remaining <= 10) badge.classList.add('crit');
       else if (remaining <= 30) badge.classList.add('warn');
     }
+
+    // Sync pause button state
+    const pauseIcon  = document.getElementById('btnSyncPauseIcon');
+    const pauseLabel = document.getElementById('btnSyncPauseLabel');
+    if (pauseIcon)  pauseIcon.textContent  = _syncPaused ? '▶️' : '⏸️';
+    if (pauseLabel) pauseLabel.textContent = _syncPaused ? 'Retomar Sync' : 'Pausar Sync';
   } catch(e) {
     console.warn('loadSyncCredit error', e);
   }
@@ -3428,7 +3440,35 @@ async function toggleSyncPause() {
     await loadSyncCredit();
     showToast(newPaused ? '⏸️ Sync pausado' : '▶️ Sync retomado', newPaused ? 'info' : 'success');
   } catch(e) {
-    showToast('Erro ao alterar sync', 'error');
+    showToast('Erro ao alterar sync: ' + e.message, 'error');
+  }
+}
+
+async function manualSync(btn) {
+  const orig = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="qb-icon">⏳</span> Sincronizando…'; }
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const { data, error } = await supabase.functions.invoke('tuya-sync', {
+      body: { force: true },
+    });
+    if (error) throw error;
+    const result = data;
+
+    if (result?.skipped) {
+      showToast(`Sync pulado: ${result.reason}`, 'info');
+    } else if (result?.success !== false) {
+      const changed = result?.changed ?? 0;
+      showToast(`✅ Sync OK — ${result?.checked ?? 0} devices, ${changed} alterações`, 'success');
+    } else {
+      showToast('Erro no sync: ' + (result?.error ?? 'desconhecido'), 'error');
+    }
+    await loadSyncCredit();
+  } catch(e) {
+    showToast('Erro ao sincronizar: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = orig; }
   }
 }
 

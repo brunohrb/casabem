@@ -139,29 +139,31 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
   const started = Date.now();
+  const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
+  const force = body?.force === true; // sync manual ignora agenda e tempo
 
-  // 1. Pausa manual
+  // 1. Pausa manual (force ignora pausa)
   const { data: settings } = await db.from("app_settings")
     .select("sync_paused, last_sync_at").eq("id", 1).single();
-  if (settings?.sync_paused) {
+  if (!force && settings?.sync_paused) {
     return json({ success: true, skipped: true, reason: "paused" });
   }
 
-  // 2. Agenda horária
+  // 2. Agenda horária (force ignora agenda)
   const requiredInterval = getRequiredInterval();
-  if (requiredInterval === null) {
+  if (!force && requiredInterval === null) {
     return json({ success: true, skipped: true, reason: "outside_schedule" });
   }
 
-  // 3. Tempo mínimo desde último sync
-  if (settings?.last_sync_at) {
+  // 3. Tempo mínimo desde último sync (force ignora)
+  if (!force && settings?.last_sync_at) {
     const minutesSince = (Date.now() - new Date(settings.last_sync_at).getTime()) / 60000;
-    if (minutesSince < requiredInterval - 0.5) {
+    if (minutesSince < (requiredInterval ?? 5) - 0.5) {
       return json({ success: true, skipped: true, reason: "too_soon", minutes_since: Math.round(minutesSince), required: requiredInterval });
     }
   }
 
-  // 4. Orçamento mensal
+  // 4. Orçamento mensal (force também respeita — não queremos estourar)
   if (!(await checkBudget())) {
     await recordRun(true);
     return json({ success: true, skipped: true, reason: "budget_exhausted" });
