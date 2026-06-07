@@ -1,0 +1,2 @@
+[functions.tuya-sync]
+verify_jwt = false
