@@ -3448,13 +3448,16 @@ async function manualSync(btn) {
   const orig = btn ? btn.innerHTML : '';
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="qb-icon">⏳</span> Sincronizando…'; }
   try {
-    const { data: { session } } = await db.auth.getSession();
-    const token = session?.access_token;
-    const { data, error } = await db.functions.invoke('tuya-sync', {
-      body: { force: true },
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/tuya-sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'apikey':        SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+      },
+      body: JSON.stringify({ force: true }),
     });
-    if (error) throw error;
-    const result = data;
+    const result = await r.json();
 
     if (result?.skipped) {
       showToast(`Sync pulado: ${result.reason}`, 'info');
