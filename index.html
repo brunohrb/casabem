@@ -3416,7 +3416,7 @@ async function loadSyncCredit() {
       badge.title = 'Sync pausado';
     } else {
       icon.textContent = '📡';
-      text.textContent = `${remaining}% crédito`;
+      text.textContent = `${remaining}% livre`;
       badge.title = `${callsUsed.toLocaleString()} / ${maxCalls.toLocaleString()} chamadas`;
       if (remaining <= 10) badge.classList.add('crit');
       else if (remaining <= 30) badge.classList.add('warn');
