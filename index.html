@@ -2118,7 +2118,10 @@
     <div id="onNowBody" style="overflow-y:auto;flex:1;padding:4px 0"></div>
     <div style="display:flex;justify-content:space-between;align-items:center;padding-top:14px;border-top:1px solid var(--border);margin-top:14px">
       <button class="btn btn-ghost" onclick="closeOnNowModal()">Fechar</button>
-      <button class="btn btn-primary" id="onNowSyncBtn" onclick="renderOnNowBody()">🔄 Atualizar</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-danger" onclick="onNowOffAll()">🔴 Desligar tudo</button>
+        <button class="btn btn-primary" onclick="renderOnNowBody()">🔄 Atualizar</button>
+      </div>
     </div>
   </div>
 </div>
@@ -4506,8 +4509,6 @@ async function openOnNowModal(btn) {
 
 function renderOnNowBody() {
   const body = document.getElementById('onNowBody');
-
-  // Usa estado local (mantido em tempo real pelo realtime subscription)
   const on = allDevices.filter(d => d.status && !d.hidden);
   const ir = allDevices.filter(d => d.ir_parent_id && !d.hidden);
   const typeIcon = { light:'💡', ac:'❄️', tv:'📺', fan:'💨', other:'🔌' };
@@ -4520,41 +4521,77 @@ function renderOnNowBody() {
     </div>`;
     if (ir.length > 0) {
       html += `<div style="margin:0 4px;padding:10px 12px;background:#fef9c3;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#713f12">
-        <b>⚠️ Dispositivos IR (AC, TV)</b> — estado real desconhecido. IR é de mão única; o aparelho não reporta se está ligado.
+        <b>⚠️ Dispositivos IR (AC, TV)</b> — estado desconhecido (IR é de mão única).
       </div>`;
     }
     body.innerHTML = html;
     return;
   }
 
-  // Agrupa por cômodo
   const byRoom = {};
   for (const d of on) {
     if (!byRoom[d.room]) byRoom[d.room] = [];
     byRoom[d.room].push(d);
   }
+
+  const btnStyle = 'border:1px solid var(--border);background:#fff;border-radius:6px;font-size:11px;padding:4px 8px;cursor:pointer;white-space:nowrap';
+  const btnRedStyle = 'border:1px solid #fca5a5;background:#fef2f2;color:#b91c1c;border-radius:6px;font-size:11px;padding:4px 8px;cursor:pointer;white-space:nowrap';
+
   let html = '';
   for (const [room, devs] of Object.entries(byRoom)) {
     html += `<div style="margin-bottom:16px">
       <div style="font-weight:700;font-size:13px;color:var(--accent2);margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)">${escapeHtml(room)}</div>
       ${devs.map(d => `
-        <div style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid #f0f0f0">
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #f0f0f0;flex-wrap:wrap">
           <span style="font-size:18px">${typeIcon[d.type] || '🔌'}</span>
-          <div style="flex:1">
+          <div style="flex:1;min-width:80px">
             <div style="font-weight:600;font-size:13px">${escapeHtml(d.name)}</div>
-            ${d.ir_parent_id ? '<div style="font-size:11px;color:var(--text2)">IR — estado estimado</div>' : ''}
+            ${d.ir_parent_id ? '<div style="font-size:10px;color:var(--text2)">IR — estado estimado</div>' : ''}
           </div>
-          <span style="background:#dcfce7;color:#166534;font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px">LIGADO</span>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            <button style="${btnRedStyle}" onclick="onNowOff('${d.id}')">Desligar</button>
+            <button style="${btnStyle}" onclick="onNowTimer('${d.id}',5)">5 min</button>
+            <button style="${btnStyle}" onclick="onNowTimer('${d.id}',20)">20 min</button>
+          </div>
         </div>`).join('')}
     </div>`;
   }
+
   if (ir.length > 0 && !on.some(d => d.ir_parent_id)) {
     html += `<div style="margin-top:8px;padding:10px 12px;background:#fef9c3;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#713f12">
-      <b>⚠️ Dispositivos IR (AC, TV)</b> — estado real desconhecido. IR é de mão única; o aparelho não reporta se está ligado.
+      <b>⚠️ Dispositivos IR (AC, TV)</b> — estado desconhecido (IR é de mão única).
     </div>`;
   }
   html += `<div style="margin-top:12px;font-size:11px;color:var(--text2);text-align:center">${on.length} ligado(s) de ${allDevices.length} dispositivo(s)</div>`;
   body.innerHTML = html;
+}
+
+async function onNowOff(deviceId) {
+  await updateDevice(deviceId, { status: false });
+  renderOnNowBody();
+}
+
+async function onNowTimer(deviceId, minutes) {
+  const device = allDevices.find(d => d.id === deviceId);
+  if (!device) return;
+  const fireAt = new Date(Date.now() + minutes * 60 * 1000).toISOString();
+  await cancelDeviceTimersForDevice(deviceId);
+  await db.from('pending_timers').insert({
+    device_id: deviceId, device_name: device.name,
+    action: 'off', fire_at: fireAt,
+    label: `Desligar ${device.name} em ${minutes}min`,
+    source: 'manual_timer',
+  });
+  showToast(`⏱️ ${device.name} vai desligar em ${minutes} min`, 'success');
+  renderOnNowBody();
+}
+
+async function onNowOffAll() {
+  const on = allDevices.filter(d => d.status && !d.hidden);
+  if (!on.length) return;
+  await Promise.all(on.map(d => updateDevice(d.id, { status: false }, { silent: true })));
+  showToast(`🔴 ${on.length} dispositivo(s) desligados`, 'info');
+  renderOnNowBody();
 }
 
 // Dispara uma rodada do tuya-sync na hora (útil se o cron do Supabase
