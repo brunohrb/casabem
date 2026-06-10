@@ -64,6 +64,32 @@ pra esses devices, em ordem de prioridade no `updateDevice`:
 3. **Switch direto** (relé Wi-Fi normal): `/v1.0/devices/{id}/commands`
    com `switch_code` (default `switch_1`).
 
+### Quota IR e limitações conhecidas (06/2026)
+
+- **TVs** funcionam via `v2 remotes/raw/command` com body
+  `{category_id: 2, key: "Power", key_id: 1}` — NÃO usa quota de AC.
+- **ACs** caem em quota própria (`controllable device pool`) em TODOS os
+  endpoints IR (incluindo raw/command com category_id 5). **Solução
+  obrigatória: Cenas Tap-to-Run** no SmartLife + vincular
+  `scene_on_id`/`scene_off_id` no device.
+- O status de devices IR **sempre mostra "Desligado"** no dashboard
+  porque IR é one-way — o aparelho não reporta estado de volta. O
+  tuya-sync sobrescreve qualquer toggle local. Isso é esperado.
+
+### Hubs IR da casa
+
+| Hub ID | Localização |
+|---|---|
+| `eb018c7199210f659evsor` | Sala |
+| `eb670d9cba9fce8223zjmq` | Quarto Casal |
+| `eb0a60f667cc785d01wmk1` | Escritório |
+
+### FK constraints em `devices`
+
+Todas as tabelas que referenciam `devices(id)` têm `ON DELETE CASCADE`
+(migração `fix_all_device_fks_cascade`, 06/2026). O botão apagar do
+dashboard nunca mais vai travar com erro de FK.
+
 ### Botões úteis no dashboard
 
 - **📡 Descobrir IR** — dado o tuya_device_id do hub, lista os remotes
