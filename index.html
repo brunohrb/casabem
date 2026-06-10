@@ -222,6 +222,7 @@
       border-bottom: 1px solid var(--border);
       overflow-x: auto;
       background: #fff;
+      justify-content: center;
     }
 
     .stat-card {
@@ -291,6 +292,7 @@
     .cam-panel.cam-right { right: 0; }
     /* Só mostra quando sobra espaço suficiente (1400px do main + 2x180px laterais) */
     @media (max-width: 1780px) { .cam-panel { display: none; } }
+    @media (display-mode: standalone) { .cam-panel { display: none !important; } }
 
     .cam-panel-header {
       display: flex;
@@ -3464,9 +3466,11 @@ async function vacuumLocate(id) {
 // PAINÉIS DE CÂMERA
 // ============================================================
 function loadCam(side) {
-  const urlInput = document.getElementById('camUrl' + (side === 'left' ? 'Left' : 'Right'));
-  const placeholder = document.getElementById('camPlaceholder' + (side === 'left' ? 'Left' : 'Right'));
-  const panel = document.getElementById('camPanel' + (side === 'left' ? 'Left' : 'Right'));
+  const key = side === 'left' ? 'Left' : 'Right';
+  const urlInput = document.getElementById('camUrl' + key);
+  const placeholder = document.getElementById('camPlaceholder' + key);
+  const panel = document.getElementById('camPanel' + key);
+  if (!urlInput || !panel) return;
   const url = urlInput.value.trim();
   if (!url) return;
 
@@ -3491,8 +3495,7 @@ document.addEventListener('DOMContentLoaded', () => {
   ['left', 'right'].forEach(side => {
     const saved = localStorage.getItem('camUrl_' + side);
     if (saved) {
-      const key = side === 'left' ? 'Left' : 'Right';
-      const input = document.getElementById('camUrl' + key);
+      const input = document.getElementById('camUrl' + (side === 'left' ? 'Left' : 'Right'));
       if (input) { input.value = saved; loadCam(side); }
     }
   });
