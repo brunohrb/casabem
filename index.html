@@ -268,6 +268,81 @@
       .sidebar { border-left: none; border-top: 1px solid var(--border); position: static; max-height: none; }
     }
 
+    /* ============================================================
+       PAINÉIS DE CÂMERA LATERAIS
+    ============================================================ */
+    .cam-panel {
+      position: fixed;
+      top: 70px;
+      bottom: 0;
+      width: calc((100vw - 1400px) / 2 - 8px);
+      min-width: 160px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin: 8px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      z-index: 10;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+    }
+    .cam-panel.cam-left  { left: 0; }
+    .cam-panel.cam-right { right: 0; }
+    /* Só mostra quando sobra espaço suficiente (1400px do main + 2x180px laterais) */
+    @media (max-width: 1780px) { .cam-panel { display: none; } }
+
+    .cam-panel-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text2);
+      flex-shrink: 0;
+    }
+    .cam-panel-header input {
+      flex: 1;
+      font-size: 10px;
+      padding: 3px 6px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      background: var(--bg);
+      color: var(--text);
+      min-width: 0;
+    }
+    .cam-panel-header button {
+      font-size: 10px;
+      padding: 3px 7px;
+      border: 1px solid var(--accent);
+      border-radius: 5px;
+      background: transparent;
+      color: var(--accent);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .cam-panel iframe {
+      flex: 1;
+      width: 100%;
+      border: none;
+      background: #0a0f1a;
+    }
+    .cam-panel .cam-placeholder {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text2);
+      font-size: 12px;
+      gap: 8px;
+      padding: 16px;
+      text-align: center;
+    }
+    .cam-placeholder-icon { font-size: 32px; opacity: 0.4; }
+
     @media (max-width: 600px) {
       header { padding: 8px 14px; }
       .logo-img { height: 40px; }
@@ -1804,6 +1879,33 @@
   <div class="stat-card">
     <div class="val" id="statCommands" style="color:var(--orange)">—</div>
     <div class="lbl">Comandos Hoje</div>
+  </div>
+</div>
+
+<!-- ============================================================
+     PAINÉIS DE CÂMERA LATERAIS
+============================================================ -->
+<div class="cam-panel cam-left" id="camPanelLeft">
+  <div class="cam-panel-header">
+    📷 Câm. 1
+    <input type="text" id="camUrlLeft" placeholder="Cole a URL da câmera..." onkeydown="if(event.key==='Enter')loadCam('left')">
+    <button onclick="loadCam('left')">Ir</button>
+  </div>
+  <div class="cam-placeholder" id="camPlaceholderLeft">
+    <span class="cam-placeholder-icon">📷</span>
+    <span>Cole a URL da câmera e clique <strong>Ir</strong></span>
+  </div>
+</div>
+
+<div class="cam-panel cam-right" id="camPanelRight">
+  <div class="cam-panel-header">
+    📷 Câm. 2
+    <input type="text" id="camUrlRight" placeholder="Cole a URL da câmera..." onkeydown="if(event.key==='Enter')loadCam('right')">
+    <button onclick="loadCam('right')">Ir</button>
+  </div>
+  <div class="cam-placeholder" id="camPlaceholderRight">
+    <span class="cam-placeholder-icon">📷</span>
+    <span>Cole a URL da câmera e clique <strong>Ir</strong></span>
   </div>
 </div>
 
@@ -3357,6 +3459,44 @@ async function vacuumLocate(id) {
   }
   showToast(`📍 ${device.name} emitindo som de localização`, 'info');
 }
+
+// ============================================================
+// PAINÉIS DE CÂMERA
+// ============================================================
+function loadCam(side) {
+  const urlInput = document.getElementById('camUrl' + (side === 'left' ? 'Left' : 'Right'));
+  const placeholder = document.getElementById('camPlaceholder' + (side === 'left' ? 'Left' : 'Right'));
+  const panel = document.getElementById('camPanel' + (side === 'left' ? 'Left' : 'Right'));
+  const url = urlInput.value.trim();
+  if (!url) return;
+
+  // Remove iframe anterior se existir
+  const old = panel.querySelector('iframe');
+  if (old) old.remove();
+
+  if (placeholder) placeholder.style.display = 'none';
+
+  const iframe = document.createElement('iframe');
+  iframe.src = url;
+  iframe.allow = 'camera; microphone; autoplay; fullscreen';
+  iframe.setAttribute('allowfullscreen', '');
+  panel.appendChild(iframe);
+
+  // Salva URL no localStorage
+  localStorage.setItem('camUrl_' + side, url);
+}
+
+// Restaura câmeras salvas ao carregar
+document.addEventListener('DOMContentLoaded', () => {
+  ['left', 'right'].forEach(side => {
+    const saved = localStorage.getItem('camUrl_' + side);
+    if (saved) {
+      const key = side === 'left' ? 'Left' : 'Right';
+      const input = document.getElementById('camUrl' + key);
+      if (input) { input.value = saved; loadCam(side); }
+    }
+  });
+});
 
 // ============================================================
 // AÇÕES RÁPIDAS
