@@ -1842,6 +1842,10 @@
       <span class="mic-icon">🎤</span>
       <span id="micLabel">BEM</span>
     </button>
+    <div id="syncCreditBadge" title="Chamadas Tuya usadas este mês" style="display:none;align-items:center;gap:5px;font-size:12px;background:var(--card);border:1px solid var(--border);border-radius:20px;padding:3px 10px;cursor:pointer" onclick="manualSync(null)">
+      <span>🔄</span>
+      <span id="syncCreditText">—</span>
+    </div>
     <div class="status-badge">
       <div class="status-dot" id="statusDot"></div>
       <span id="statusText">Conectando...</span>
@@ -4761,8 +4765,22 @@ async function loadSyncCredit() {
     ]);
     _syncPaused = settingsRes.data?.sync_paused ?? false;
     const used  = budgetRes.data?.calls_used ?? 0;
+
+    // Badge na sidebar (botão Sync Agora)
     const badge = document.getElementById('syncBadge');
     if (badge) badge.textContent = used ? `${used}` : '';
+
+    // Badge no header
+    const headerBadge = document.getElementById('syncCreditBadge');
+    const headerText  = document.getElementById('syncCreditText');
+    if (headerBadge && headerText) {
+      headerBadge.style.display = 'flex';
+      headerText.textContent    = _syncPaused ? '⏸️ pausado' : `${used} sync`;
+      headerBadge.title         = _syncPaused
+        ? 'Sync pausado — clique para sincronizar agora'
+        : `${used} chamadas Tuya usadas este mês — clique para sincronizar`;
+    }
+
     const pauseIcon  = document.getElementById('btnSyncPauseIcon');
     const pauseLabel = document.getElementById('btnSyncPauseLabel');
     if (pauseIcon)  pauseIcon.textContent  = _syncPaused ? '▶️' : '⏸️';
