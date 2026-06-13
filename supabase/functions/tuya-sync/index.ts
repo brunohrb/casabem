@@ -149,9 +149,10 @@ Deno.serve(async (req) => {
         const realBright = extractBrightness(points);
 
         if (realStatus === null) {
-          await db.from("devices")
+          const { error: tsErr } = await db.from("devices")
             .update({ last_tuya_sync_at: new Date().toISOString() })
             .eq("id", d.id);
+          if (tsErr) console.error(`[sync] last_tuya_sync_at update failed for ${d.name}:`, JSON.stringify(tsErr));
           continue;
         }
 
@@ -170,7 +171,11 @@ Deno.serve(async (req) => {
         if (diffBright) patch.brightness = realBright;
 
         if (Object.keys(patch).length > 1 /* só 'last_tuya_sync_at' = no-op */) {
-          await db.from("devices").update(patch).eq("id", d.id);
+          const { error: updateErr } = await db.from("devices").update(patch).eq("id", d.id);
+          if (updateErr) {
+            console.error(`[sync] update FAILED for ${d.name} (${d.id}):`, JSON.stringify(updateErr));
+            changes.push({ id: d.id, name: d.name, updateError: updateErr.message ?? String(updateErr) });
+          }
           if (diffStatus || diffBright) {
             changed++;
             changes.push({
