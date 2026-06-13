@@ -4761,24 +4761,29 @@ async function loadSyncCredit() {
     const month = new Date().toISOString().slice(0, 7);
     const [budgetRes, settingsRes] = await Promise.all([
       db.from('sync_budget').select('calls_used').eq('month', month).maybeSingle(),
-      db.from('app_settings').select('sync_paused').eq('id', 1).maybeSingle(),
+      db.from('app_settings').select('sync_paused,sync_budget_limit').eq('id', 1).maybeSingle(),
     ]);
     _syncPaused = settingsRes.data?.sync_paused ?? false;
     const used  = budgetRes.data?.calls_used ?? 0;
+    const limit = settingsRes.data?.sync_budget_limit ?? 3000;
+    const pct   = Math.min(100, Math.round((used / limit) * 100));
+    const color = pct >= 90 ? '#ef4444' : pct >= 70 ? '#f97316' : '#22c55e';
 
     // Badge na sidebar (botão Sync Agora)
     const badge = document.getElementById('syncBadge');
-    if (badge) badge.textContent = used ? `${used}` : '';
+    if (badge) badge.textContent = `${pct}%`;
 
     // Badge no header
     const headerBadge = document.getElementById('syncCreditBadge');
     const headerText  = document.getElementById('syncCreditText');
     if (headerBadge && headerText) {
-      headerBadge.style.display = 'flex';
-      headerText.textContent    = _syncPaused ? '⏸️ pausado' : `${used} sync`;
-      headerBadge.title         = _syncPaused
+      headerBadge.style.display     = 'flex';
+      headerBadge.style.borderColor = color;
+      headerText.style.color        = color;
+      headerText.textContent        = _syncPaused ? '⏸️ pausado' : `🔄 ${pct}%`;
+      headerBadge.title             = _syncPaused
         ? 'Sync pausado — clique para sincronizar agora'
-        : `${used} chamadas Tuya usadas este mês — clique para sincronizar`;
+        : `${used} de ${limit} chamadas usadas este mês (${pct}%) — clique para sincronizar`;
     }
 
     const pauseIcon  = document.getElementById('btnSyncPauseIcon');
