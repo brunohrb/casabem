@@ -1925,20 +1925,20 @@
     <div class="section-header">
       <div class="section-title">Dispositivos</div>
       <div class="view-tabs">
-        <button class="view-tab active" id="tabLista" onclick="switchView('lista')">📋 Lista</button>
-        <button class="view-tab" id="tabMapa" onclick="switchView('mapa')">🗺️ Mapa</button>
+        <button class="view-tab" id="tabLista" onclick="switchView('lista')">📋 Lista</button>
+        <button class="view-tab active" id="tabMapa" onclick="switchView('mapa')">🗺️ Mapa</button>
       </div>
     </div>
 
     <!-- LISTA VIEW -->
-    <div id="listaView">
+    <div id="listaView" style="display:none">
       <div id="devicesList">
         <div class="loading"><div class="spinner"></div></div>
       </div>
     </div>
 
     <!-- MAPA VIEW -->
-    <div id="mapView">
+    <div id="mapView" class="visible">
       <div class="map-toolbar">
         <span class="mt-title">🗺️ Mapa da Casa</span>
         <span class="mt-spacer"></span>
@@ -3555,7 +3555,7 @@ async function desligarPorTipo(tipo) {
 // ============================================================
 // VIEW SWITCHER (Lista / Mapa)
 // ============================================================
-let currentView  = 'lista';
+let currentView  = 'mapa';
 let mapShowHidden = false;    // mostra dispositivos marcados hidden_in_map
 
 function switchView(view) {
