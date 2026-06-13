@@ -2007,6 +2007,13 @@
         <button class="quick-btn" onclick="openScenesModal()">
           <span class="qb-icon">🎬</span> Cenas Tuya
         </button>
+        <button class="quick-btn" id="btnSyncNow" onclick="manualSync(this)">
+          <span class="qb-icon">🔄</span> Sync Agora
+          <span id="syncBadge" style="margin-left:4px;font-size:10px;background:var(--border);padding:1px 5px;border-radius:8px;vertical-align:middle"></span>
+        </button>
+        <button class="quick-btn" id="btnSyncPause" onclick="toggleSyncPause()">
+          <span class="qb-icon" id="btnSyncPauseIcon">⏸️</span> <span id="btnSyncPauseLabel">Pausar Sync</span>
+        </button>
       </div>
     </div>
 
@@ -2224,6 +2231,7 @@
       <button class="btn btn-ghost" onclick="closeOnNowModal()">Fechar</button>
       <div style="display:flex;gap:8px">
         <button class="btn btn-danger" onclick="onNowOffAll()">🔴 Desligar tudo</button>
+        <button class="btn btn-danger" style="background:#f97316;border-color:#ea580c" onclick="onNowTimerAll(5)">⏱️ Desligar em 5 min</button>
         <button class="btn btn-primary" onclick="renderOnNowBody()">🔄 Atualizar</button>
       </div>
     </div>
@@ -2602,6 +2610,7 @@ async function loadAll() {
     loadPendingTimers(),
     loadRoomOrder(),
     loadScenes(),
+    loadSyncCredit(),
   ]);
   updateStats();
   renderDevices();
@@ -3505,23 +3514,17 @@ document.addEventListener('DOMContentLoaded', () => {
 // AÇÕES RÁPIDAS
 // ============================================================
 async function ligarTudo() {
-  if (allDevices.length === 0) return;
-  // Pula TVs: como o IR de TV é Power toggle, "ligar" pode acabar
-  // desligando se o estado real divergir do que o sistema acha.
-  // Pra ligar TV especificamente, usa o botão ⚡ Power do card.
-  for (const d of allDevices) {
-    if (d.type === 'tv') continue;
-    if (!d.status) await updateDevice(d.id, { status: true });
-  }
-  showToast('Tudo ligado (menos TVs) 💡', 'success');
+  const alvo = allDevices.filter(d => d.type !== 'tv' && !d.ir_parent_id);
+  if (!alvo.length) return;
+  await Promise.all(alvo.map(d => updateDevice(d.id, { status: true }, { silent: true })));
+  showToast(`Tudo ligado (${alvo.length}) 💡`, 'success');
 }
 
 async function desligarTudo() {
-  for (const d of allDevices) {
-    if (d.type === 'tv') continue;             // mesma razão acima
-    if (d.status) await updateDevice(d.id, { status: false });
-  }
-  showToast('Casa no modo economia 🌙', 'info');
+  const alvo = allDevices.filter(d => d.type !== 'tv' && !d.ir_parent_id);
+  if (!alvo.length) return;
+  await Promise.all(alvo.map(d => updateDevice(d.id, { status: false }, { silent: true })));
+  showToast(`Casa no modo economia 🌙 (${alvo.length})`, 'info');
 }
 
 const TIPO_LABELS = {
@@ -3532,25 +3535,17 @@ const TIPO_LABELS = {
 };
 
 async function ligarPorTipo(tipo) {
-  const alvo = allDevices.filter(d => d.type === tipo);
-  if (alvo.length === 0) { showToast(`Nenhum ${TIPO_LABELS[tipo]?.plural || tipo} cadastrado`, 'info'); return; }
-  let count = 0;
-  for (const d of alvo) {
-    if (!d.status) { await updateDevice(d.id, { status: true }, { silent: true }); count++; }
-  }
-  const lbl = TIPO_LABELS[tipo]?.on || `${tipo} ligados`;
-  showToast(count ? `${lbl} (${count})` : 'Já estavam ligados', count ? 'success' : 'info');
+  const alvo = allDevices.filter(d => d.type === tipo && !d.ir_parent_id);
+  if (!alvo.length) { showToast(`Nenhum ${TIPO_LABELS[tipo]?.plural || tipo} cadastrado`, 'info'); return; }
+  await Promise.all(alvo.map(d => updateDevice(d.id, { status: true }, { silent: true })));
+  showToast(`${TIPO_LABELS[tipo]?.on || tipo + ' ligados'} (${alvo.length})`, 'success');
 }
 
 async function desligarPorTipo(tipo) {
-  const alvo = allDevices.filter(d => d.type === tipo);
-  if (alvo.length === 0) { showToast(`Nenhum ${TIPO_LABELS[tipo]?.plural || tipo} cadastrado`, 'info'); return; }
-  let count = 0;
-  for (const d of alvo) {
-    if (d.status) { await updateDevice(d.id, { status: false }, { silent: true }); count++; }
-  }
-  const lbl = TIPO_LABELS[tipo]?.off || `${tipo} desligados`;
-  showToast(count ? `${lbl} (${count})` : 'Já estavam desligados', count ? 'info' : 'info');
+  const alvo = allDevices.filter(d => d.type === tipo && !d.ir_parent_id);
+  if (!alvo.length) { showToast(`Nenhum ${TIPO_LABELS[tipo]?.plural || tipo} cadastrado`, 'info'); return; }
+  await Promise.all(alvo.map(d => updateDevice(d.id, { status: false }, { silent: true })));
+  showToast(`${TIPO_LABELS[tipo]?.off || tipo + ' desligados'} (${alvo.length})`, 'info');
 }
 
 // ============================================================
@@ -4735,6 +4730,86 @@ async function onNowOffAll() {
   await Promise.all(on.map(d => updateDevice(d.id, { status: false }, { silent: true })));
   showToast(`🔴 ${on.length} dispositivo(s) desligados`, 'info');
   renderOnNowBody();
+}
+
+async function onNowTimerAll(minutes) {
+  const on = allDevices.filter(d => d.status && !d.hidden);
+  if (!on.length) { showToast('Nenhum dispositivo ligado', 'info'); return; }
+  const fireAt = new Date(Date.now() + minutes * 60 * 1000).toISOString();
+  await Promise.all(on.map(async d => {
+    await cancelDeviceTimersForDevice(d.id);
+    await db.from('pending_timers').insert({
+      device_id: d.id, device_name: d.name,
+      action: 'off', fire_at: fireAt,
+      label: `Desligar ${d.name} em ${minutes}min`,
+      source: 'manual_timer',
+    });
+  }));
+  showToast(`⏱️ ${on.length} dispositivo(s) vão desligar em ${minutes} min`, 'success');
+  renderOnNowBody();
+}
+
+// ── Sync manual + pausa + badge de crédito ───────────────────
+let _syncPaused = false;
+
+async function loadSyncCredit() {
+  try {
+    const month = new Date().toISOString().slice(0, 7);
+    const [budgetRes, settingsRes] = await Promise.all([
+      db.from('sync_budget').select('calls_used').eq('month', month).maybeSingle(),
+      db.from('app_settings').select('sync_paused').eq('id', 1).maybeSingle(),
+    ]);
+    _syncPaused = settingsRes.data?.sync_paused ?? false;
+    const used  = budgetRes.data?.calls_used ?? 0;
+    const badge = document.getElementById('syncBadge');
+    if (badge) badge.textContent = used ? `${used}` : '';
+    const pauseIcon  = document.getElementById('btnSyncPauseIcon');
+    const pauseLabel = document.getElementById('btnSyncPauseLabel');
+    if (pauseIcon)  pauseIcon.textContent  = _syncPaused ? '▶️' : '⏸️';
+    if (pauseLabel) pauseLabel.textContent = _syncPaused ? 'Retomar Sync' : 'Pausar Sync';
+  } catch(e) { console.warn('loadSyncCredit error', e); }
+}
+
+async function toggleSyncPause() {
+  const next = !_syncPaused;
+  try {
+    const { error } = await db.from('app_settings').update({ sync_paused: next }).eq('id', 1);
+    if (error) throw error;
+    _syncPaused = next;
+    await loadSyncCredit();
+    showToast(next ? '⏸️ Sync automático pausado' : '▶️ Sync retomado', 'info');
+  } catch(e) {
+    showToast('Erro ao alterar sync: ' + (e.message || e), 'error');
+  }
+}
+
+async function manualSync(btn) {
+  const orig = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="qb-icon">⏳</span> Sincronizando…'; }
+  try {
+    const r = await fetch(TUYA_SYNC_FN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
+      body: JSON.stringify({ force: true }),
+    });
+    const result = await r.json();
+    if (result?.success !== false) {
+      const changed = result?.changed ?? 0;
+      showToast(`✅ Sync OK — ${result?.checked ?? 0} devices, ${changed} alterações`, changed ? 'success' : 'info');
+      await Promise.all([loadSyncCredit(), loadDevices()]);
+      renderDevices();
+      if (changed > 0) openOnNowModal();
+    } else {
+      showToast('Erro no sync: ' + (result?.error ?? 'desconhecido'), 'error');
+      await Promise.all([loadSyncCredit(), loadDevices()]);
+      renderDevices();
+    }
+  } catch(e) {
+    showToast('Erro ao sincronizar: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = orig; }
+    loadSyncCredit();
+  }
 }
 
 // Dispara uma rodada do tuya-sync na hora (útil se o cron do Supabase
