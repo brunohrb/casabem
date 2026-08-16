@@ -3408,11 +3408,17 @@ async function updateDevice(id, fields, opts = {}) {
           console.warn('[IR attempts]', result.attempts);
         } else {
           const detail = result?.msg || result?.error || '';
-          showToast(`${device.name}: erro Tuya ${detail ? '· ' + detail : '⚠️'}`, 'error');
+          const code   = result?.code;
+          if (code === 28841002 || String(code) === '28841002' || (detail && detail.includes('subscription'))) {
+            showToast(`⚠️ Assinatura Tuya expirada! Acesse iot.tuya.com → seu projeto → "Extend Service Trial Period"`, 'error', 8000);
+          } else {
+            showToast(`${device.name}: erro Tuya ${detail ? '· ' + detail : '⚠️'}`, 'error');
+          }
         }
       }
     } catch (e) {
       console.warn('Tuya fetch error:', e);
+      showToast(`${device.name}: sem resposta do Tuya — verifique a assinatura em iot.tuya.com`, 'error', 6000);
     }
   }
 
@@ -6265,12 +6271,12 @@ function showStatus(online) {
 }
 
 let toastTimer;
-function showToast(msg, type = 'info') {
+function showToast(msg, type = 'info', duration = 3000) {
   const el = document.getElementById('toast');
   el.textContent = msg;
   el.className = `show ${type}`;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.className = type; }, 3000);
+  toastTimer = setTimeout(() => { el.className = type; }, duration);
 }
 </script>
 
