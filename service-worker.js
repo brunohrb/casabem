@@ -8,7 +8,7 @@
 // o SW antigo expira e o novo toma conta no próximo load.
 // ============================================================
 
-const CACHE_VERSION = 'casabem-v5';
+const CACHE_VERSION = 'casabem-v6';
 const SHELL_ASSETS = [
   './',
   './index.html',

@@ -2018,6 +2018,9 @@
         <button class="quick-btn" id="btnSyncPause" onclick="toggleSyncPause()">
           <span class="qb-icon" id="btnSyncPauseIcon">⏸️</span> <span id="btnSyncPauseLabel">Pausar Sync</span>
         </button>
+        <button class="quick-btn" onclick="testTuyaConnection()">
+          <span class="qb-icon">🔌</span> Testar Tuya
+        </button>
       </div>
     </div>
 
@@ -4797,6 +4800,26 @@ async function loadSyncCredit() {
     if (pauseIcon)  pauseIcon.textContent  = _syncPaused ? '▶️' : '⏸️';
     if (pauseLabel) pauseLabel.textContent = _syncPaused ? 'Retomar Sync' : 'Pausar Sync';
   } catch(e) { console.warn('loadSyncCredit error', e); }
+}
+
+async function testTuyaConnection() {
+  showToast('🔌 Testando conexão Tuya...', 'info', 10000);
+  try {
+    // Pega o primeiro device com tuya_device_id
+    const { data: devs } = await db.from('devices').select('id,name,tuya_device_id').not('tuya_device_id','is',null).limit(1);
+    if (!devs || !devs.length) { showToast('Nenhum device com tuya_device_id encontrado', 'error'); return; }
+    const dev = devs[0];
+    const r = await fetch(TUYA_EDGE_FN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
+      body: JSON.stringify({ action: 'status', device_id: dev.tuya_device_id }),
+    });
+    const result = await r.json();
+    const msg = JSON.stringify(result).substring(0, 300);
+    alert(`Teste Tuya — device: ${dev.name}\n\n${msg}`);
+  } catch(e) {
+    alert('Erro ao testar Tuya:\n' + e.message);
+  }
 }
 
 async function toggleSyncPause() {
